@@ -18,6 +18,7 @@ struct ContentView: View {
 
             overlay
         }
+        .task { state.startThermalTracking() }
         .alert(
             "Something went wrong",
             isPresented: Binding(
@@ -32,15 +33,26 @@ struct ContentView: View {
     // MARK: - Overlay
 
     private var overlay: some View {
-        VStack {
+        VStack(spacing: 0) {
             statusPill
                 .padding(.top, 12)
+
+            if state.isThermallyThrottled {
+                thermalNotice
+                    .padding(.top, 8)
+            }
 
             Spacer()
 
             if state.isSupported {
-                VStack(spacing: 22) {
+                VStack(spacing: 18) {
                     if showsDebugControls { debugControls }
+
+                    if let url = state.lastSavedURL, state.recording == .idle {
+                        savedNotice(url: url)
+                    }
+
+                    EffectPicker(selection: $state.selectedEffect)
 
                     MaskCarousel(
                         selection: $state.selectedMask,
@@ -54,7 +66,7 @@ struct ContentView: View {
                         action: state.toggleRecording
                     )
                 }
-                .padding(.bottom, 34)
+                .padding(.bottom, 30)
             }
         }
     }
@@ -75,6 +87,31 @@ struct ContentView: View {
         .padding(.vertical, 8)
         .background(.ultraThinMaterial, in: Capsule())
         .onTapGesture(count: 3) { showsDebugControls.toggle() }
+    }
+
+    private var thermalNotice: some View {
+        Label("Running warm, recording at a lower frame rate", systemImage: "thermometer.high")
+            .font(.caption)
+            .foregroundStyle(.white)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(.orange.opacity(0.75), in: Capsule())
+    }
+
+    private func savedNotice(url: URL) -> some View {
+        HStack(spacing: 12) {
+            Label("Saved to Photos", systemImage: "checkmark.circle.fill")
+                .font(.footnote.weight(.medium))
+
+            ShareLink(item: url) {
+                Label("Share", systemImage: "square.and.arrow.up")
+                    .font(.footnote.weight(.semibold))
+            }
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .background(.ultraThinMaterial, in: Capsule())
     }
 
     /// Hidden behind a triple tap on the status pill. The tint spike is a

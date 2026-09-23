@@ -2,14 +2,16 @@ import ARKit
 import AVFAudio
 import CoreMedia
 import RealityKit
+import UIKit
+import os
 
 /// Owns the ARKit face-tracking session and everything hanging off it.
 ///
 /// `ARView` rather than `RealityView`: blendshape coefficients only ever arrive
 /// through `ARSessionDelegate`, and `ARView` exposes `.session` directly.
 /// `RealityView` plus `SpatialTrackingSession` makes reaching the underlying
-/// anchor data awkward, which matters as soon as expression-driven effects
-/// arrive.
+/// anchor data awkward, which matters now that expression-driven effects read
+/// those coefficients every frame.
 final class FaceSessionCoordinator: NSObject, ARSessionDelegate, FaceSessionControlling {
 
     private let state: FaceTrackingState
@@ -17,9 +19,17 @@ final class FaceSessionCoordinator: NSObject, ARSessionDelegate, FaceSessionCont
     /// Held directly rather than reached through `state`, because audio
     /// buffers arrive on ARKit's delegate queue and `state` is main-actor.
     private let recorder: VideoRecorder
-    private weak var arView: ARView?
-    private var frameSource: PostProcessFrameSource?
 
+    /// ARKit's delegate queue reads these while the main actor writes them,
+    /// so they are behind locks rather than plain properties.
+    /// `uncheckedState` because `PostProcessFrameSource` isn't Sendable. The
+    /// lock is what makes the access safe, which is exactly what that
+    /// initialiser is for.
+    private let frameSource = OSAllocatedUnfairLock<PostProcessFrameSource?>(uncheckedState: nil)
+    private let effect = OSAllocatedUnfairLock(initialState: FaceEffect.none)
+    private let viewport = OSAllocatedUnfairLock(initialState: CGSize.zero)
+
+    private weak var arView: ARView?
     private var faceAnchor: AnchorEntity?
     private var maskRoot: Entity?
     private var occlusionAdded = false
@@ -49,12 +59,11 @@ final class FaceSessionCoordinator: NSObject, ARSessionDelegate, FaceSessionCont
         configureAudioSession()
 
         arView.session.delegate = self
-        arView.automaticallyConfigureSession = false
         arView.renderOptions.insert(.disableMotionBlur)
         arView.renderOptions.insert(.disableDepthOfField)
 
         installAnchor(in: arView)
-        frameSource = PostProcessFrameSource(arView: arView, recorder: recorder)
+        frameSource.withLock { $0 = PostProcessFrameSource(arView: arView, recorder: recorder) }
 
         run(on: arView.session)
         state.update(to: .searching)
@@ -65,7 +74,7 @@ final class FaceSessionCoordinator: NSObject, ARSessionDelegate, FaceSessionCont
         arView?.session.pause()
         arView?.session.delegate = nil
         arView?.renderCallbacks.postProcess = nil
-        frameSource = nil
+        frameSource.withLock { $0 = nil }
         state.controller = nil
     }
 
@@ -101,12 +110,30 @@ final class FaceSessionCoordinator: NSObject, ARSessionDelegate, FaceSessionCont
 
     @MainActor
     func setRecordingActive(_ active: Bool) {
-        frameSource?.setRecording(active)
+        frameSource.withLock { $0?.setRecording(active) }
     }
 
     @MainActor
     func setTintEnabled(_ enabled: Bool) {
-        frameSource?.setTintEnabled(enabled)
+        frameSource.withLock { $0?.setTintEnabled(enabled) }
+    }
+
+    @MainActor
+    func setTargetFrameRate(_ fps: Double) {
+        frameSource.withLock { $0?.setTargetFrameRate(fps) }
+    }
+
+    @MainActor
+    func setEffect(_ effect: FaceEffect) {
+        self.effect.withLock { $0 = effect }
+        // Push immediately so switching to "off" takes effect even if tracking
+        // has dropped and no frame update is coming.
+        frameSource.withLock { $0?.setEffect(effect, strength: effect.maximumStrength * 0.45) }
+    }
+
+    @MainActor
+    func setViewportSize(_ size: CGSize) {
+        viewport.withLock { $0 = size }
     }
 
     @MainActor
@@ -145,6 +172,57 @@ final class FaceSessionCoordinator: NSObject, ARSessionDelegate, FaceSessionCont
     }
 
     // MARK: - ARSessionDelegate
+
+    /// Projects face landmarks to screen space for the distortion shader.
+    ///
+    /// Uses `ARCamera.projectPoint` rather than `ARView.project` so this can
+    /// stay on ARKit's delegate queue instead of hopping to the main actor 60
+    /// times a second.
+    func session(_ session: ARSession, didUpdate frame: ARFrame) {
+        guard let face = frame.anchors.lazy.compactMap({ $0 as? ARFaceAnchor }).first,
+              face.isTracked
+        else { return }
+
+        let size = viewport.withLock { $0 }
+        guard size.width > 1, size.height > 1 else { return }
+
+        let camera = frame.camera
+        func project(_ local: SIMD3<Float>) -> SIMD2<Float> {
+            let world = face.transform * SIMD4<Float>(local.x, local.y, local.z, 1)
+            let point = camera.projectPoint(
+                SIMD3<Float>(world.x, world.y, world.z),
+                orientation: .portrait,
+                viewportSize: size
+            )
+            return SIMD2<Float>(Float(point.x / size.width), Float(point.y / size.height))
+        }
+
+        let centre = project(.zero)
+        let crown = project(FaceLandmark.crown)
+
+        // Radius follows the head's apparent size, so effects scale with how
+        // close you are to the camera rather than being fixed in screen space.
+        let radius = min(0.45, max(0.08, abs(crown.y - centre.y) * 2.2))
+
+        let currentEffect = effect.withLock { $0 }
+        let jawOpen = face.blendShapes[.jawOpen]?.floatValue ?? 0
+
+        frameSource.withLock { source in
+            source?.updateLandmarks(
+                leftEye: project(FaceLandmark.eye(.left)),
+                rightEye: project(FaceLandmark.eye(.right)),
+                mouth: project(FaceLandmark.mouth),
+                centre: centre,
+                radius: radius
+            )
+            // Opening your mouth winds the effect up. This is the first thing
+            // in the app that reads blendshapes.
+            source?.setEffect(
+                currentEffect,
+                strength: currentEffect.maximumStrength * (0.45 + 0.55 * jawOpen)
+            )
+        }
+    }
 
     func session(_ session: ARSession, didUpdate anchors: [ARAnchor]) {
         guard let face = anchors.lazy.compactMap({ $0 as? ARFaceAnchor }).first else { return }

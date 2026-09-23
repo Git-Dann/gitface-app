@@ -4,13 +4,15 @@ import QuartzCore
 import RealityKit
 import os
 
-/// Taps RealityKit's finished frame for both the screen and the recorder.
+/// Taps RealityKit's finished frame for the screen, the distortion effects and
+/// the recorder.
 ///
 /// RealityKit's post-process callback hands back the composited frame — camera
 /// passthrough and rendered 3D content together — as a texture, plus a live
-/// command buffer. That single hook is why recording here is cheap: we never
-/// composite camera and 3D ourselves, never convert YCbCr, and never fight
-/// `displayTransform`. The texture arrives in display orientation.
+/// command buffer. That single hook is why all three features share one
+/// pipeline: we never composite camera and 3D ourselves, never convert YCbCr,
+/// and never fight `displayTransform`. The texture arrives in display
+/// orientation.
 ///
 /// Threading: the callback runs on RealityKit's render thread, never main.
 /// Everything main touches goes through the lock; everything else in here is
@@ -21,8 +23,8 @@ final class PostProcessFrameSource {
     /// awkward shape and larger than is worth encoding.
     static let recordSize = (width: 1080, height: 1920)
 
-    private struct Settings {
-        var tintEnabled = false
+    private struct State {
+        var uniforms = FaceUniforms()
         var isRecording = false
         var minimumFrameInterval: Double = 1.0 / 60.0
     }
@@ -31,7 +33,7 @@ final class PostProcessFrameSource {
     private let compositePipeline: MTLComputePipelineState
     private let downscalePipeline: MTLComputePipelineState
     private let recorder: VideoRecorder
-    private let settings = OSAllocatedUnfairLock(initialState: Settings())
+    private let state = OSAllocatedUnfairLock(initialState: State())
 
     // MARK: Render thread only
 
@@ -65,23 +67,50 @@ final class PostProcessFrameSource {
     /// M1 spike. Tints the composited frame red to reveal whether the source
     /// texture includes camera passthrough. Remove once that is settled.
     func setTintEnabled(_ enabled: Bool) {
-        settings.withLock { $0.tintEnabled = enabled }
+        state.withLock { $0.uniforms.tint = enabled ? 1 : 0 }
+    }
+
+    func setEffect(_ effect: FaceEffect, strength: Float) {
+        state.withLock {
+            $0.uniforms.effect = effect.rawValue
+            $0.uniforms.strength = strength
+        }
     }
 
     func setRecording(_ recording: Bool) {
-        settings.withLock { $0.isRecording = recording }
+        state.withLock { $0.isRecording = recording }
     }
 
     func setTargetFrameRate(_ fps: Double) {
         let clamped = max(1, fps)
-        settings.withLock { $0.minimumFrameInterval = 1.0 / clamped }
+        state.withLock { $0.minimumFrameInterval = 1.0 / clamped }
+    }
+
+    /// Landmark positions in normalised screen space, updated per ARKit frame.
+    func updateLandmarks(
+        leftEye: SIMD2<Float>,
+        rightEye: SIMD2<Float>,
+        mouth: SIMD2<Float>,
+        centre: SIMD2<Float>,
+        radius: Float
+    ) {
+        state.withLock {
+            $0.uniforms.leftEye = leftEye
+            $0.uniforms.rightEye = rightEye
+            $0.uniforms.mouth = mouth
+            $0.uniforms.centre = centre
+            $0.uniforms.radius = radius
+        }
     }
 
     // MARK: Render thread
 
     private func encode(_ context: ARView.PostProcessContext) {
-        let current = settings.withLock { $0 }
+        var current = state.withLock { $0 }
         let now = CACurrentMediaTime()
+
+        let targetTexture = context.targetColorTexture
+        current.uniforms.aspect = Float(targetTexture.width) / Float(max(1, targetTexture.height))
 
         // The callback fires at display refresh, up to 120Hz on ProMotion,
         // while face tracking runs at 60. Appending every callback would write
@@ -89,20 +118,20 @@ final class PostProcessFrameSource {
         let wantsFrame = current.isRecording
             && (now - lastCaptureTime) >= (current.minimumFrameInterval - 0.001)
 
-        let work = wantsFrame ? workTexture(matching: context.targetColorTexture) : nil
+        let work = wantsFrame ? workTexture(matching: targetTexture) : nil
 
         guard let encoder = context.commandBuffer.makeComputeCommandEncoder() else { return }
-        var tint = Float(current.tintEnabled ? 1 : 0)
+        var uniforms = current.uniforms
         encoder.setComputePipelineState(compositePipeline)
         encoder.setTexture(context.sourceColorTexture, index: 0)
-        encoder.setTexture(context.targetColorTexture, index: 1)
+        encoder.setTexture(targetTexture, index: 1)
         encoder.setTexture(work, index: 2)
-        encoder.setBytes(&tint, length: MemoryLayout<Float>.size, index: 0)
+        encoder.setBytes(&uniforms, length: MemoryLayout<FaceUniforms>.stride, index: 0)
         dispatch(
             encoder,
             pipeline: compositePipeline,
-            width: context.targetColorTexture.width,
-            height: context.targetColorTexture.height
+            width: targetTexture.width,
+            height: targetTexture.height
         )
         encoder.endEncoding()
 

@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 /// What the AR session needs the view layer to be able to ask of it.
@@ -9,6 +10,9 @@ import Foundation
 protocol FaceSessionControlling: AnyObject {
     func setRecordingActive(_ active: Bool)
     func setTintEnabled(_ enabled: Bool)
+    func setTargetFrameRate(_ fps: Double)
+    func setEffect(_ effect: FaceEffect)
+    func setViewportSize(_ size: CGSize)
     func applyMask(_ mask: Mask)
 }
 
@@ -47,10 +51,15 @@ final class FaceTrackingState: ObservableObject {
     @Published private(set) var recording: Recording = .idle
     @Published private(set) var elapsed: TimeInterval = 0
     @Published private(set) var lastSavedURL: URL?
+    @Published private(set) var isThermallyThrottled = false
     @Published var errorMessage: String?
 
     @Published var selectedMask: Mask = MaskLibrary.default {
         didSet { controller?.applyMask(selectedMask) }
+    }
+
+    @Published var selectedEffect: FaceEffect = .none {
+        didSet { controller?.setEffect(selectedEffect) }
     }
 
     /// M1 spike toggle. Remove once the passthrough question is settled.
@@ -61,14 +70,42 @@ final class FaceTrackingState: ObservableObject {
     weak var controller: FaceSessionControlling?
 
     let recorder = VideoRecorder()
+    let thermal = ThermalGovernor()
 
     private var ticker: Task<Void, Never>?
+    private var thermalObservation: Task<Void, Never>?
 
     var isSupported: Bool { status != .unsupported }
     var canRecord: Bool { status == .tracking || status == .searching }
     var maximumDuration: TimeInterval { VideoRecorder.maximumDuration }
 
     // MARK: - Session feedback
+
+    /// Called once the AR view has a real size, so landmark projection can
+    /// convert to normalised screen space.
+    func viewportChanged(to size: CGSize) {
+        controller?.setViewportSize(size)
+    }
+
+    /// Follows thermal state so a long clip degrades to a lower frame rate
+    /// rather than stuttering at a higher one.
+    func startThermalTracking() {
+        guard thermalObservation == nil else { return }
+        controller?.setTargetFrameRate(thermal.targetFrameRate)
+        isThermallyThrottled = thermal.isThrottled
+        thermalObservation = Task { [weak self] in
+            var last: ProcessInfo.ThermalState?
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                guard let self else { return }
+                let current = self.thermal.state
+                guard current != last else { continue }
+                last = current
+                self.isThermallyThrottled = self.thermal.isThrottled
+                self.controller?.setTargetFrameRate(self.thermal.targetFrameRate)
+            }
+        }
+    }
 
     func update(to status: Status) {
         guard self.status != status else { return }

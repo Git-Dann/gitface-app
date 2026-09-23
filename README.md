@@ -79,6 +79,24 @@ layout already matches the template.
   why it's checked before anything is built on top of it.
 - Backgrounding and returning doesn't kill the session.
 
+## M4 notes
+
+Four warp effects: bulge eyes, stretch jaw, big head, swirl. Pick one from the
+row above the mask carousel.
+
+Intensity is driven by `jawOpen`, so effects wind up as you open your mouth.
+That's the first thing in the app that reads blendshapes.
+
+Landmarks are projected with `ARCamera.projectPoint` rather than
+`ARView.project`, which keeps it on ARKit's delegate queue instead of hopping to
+the main actor 60 times a second. The effect radius follows the head's apparent
+size, so effects scale with how close you are to the camera.
+
+**M4 depends on the spike.** Distortion warps the camera image. If
+`sourceColorTexture` turns out not to contain passthrough, the kernels are still
+correct but there'd be nothing to warp except the props on a transparent
+background. Run the spike first.
+
 ## M2 and M3 acceptance
 
 - Each mask switches cleanly. Watch memory across ~20 switches; the mask root is
@@ -107,8 +125,9 @@ Known things to watch, all flagged in the plan:
 | M1 | Face tracking, passthrough spike | built |
 | M2 | Procedural props, face occlusion mesh, mask carousel | built |
 | M3 | Frame tap, `AVAssetWriter`, save to camera roll | built |
-| M4 | Distortion shaders (bulge eyes, stretch jaw, big head) | next |
-| M5 | Thermal governor, expression-triggered effects, share sheet | later |
+| M4 | Distortion shaders, expression-driven intensity | built |
+| M5 | Thermal governor, share sheet | built |
+| Next | Real USDZ masks, photo mode, haptics | later |
 
 ## Privacy
 
