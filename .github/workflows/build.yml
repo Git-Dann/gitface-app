@@ -1,0 +1,69 @@
+name: Build
+
+# The point of this workflow is that the agent writing this code runs on Linux
+# and has no Swift toolchain, so nothing it writes is verified to compile.
+# A macOS runner is the cheapest way to find that out without a human at a Mac.
+# Public repo, so macOS minutes are free.
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build for iOS
+    runs-on: macos-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Recorded because the plan makes claims about the toolchain that nothing
+      # here has verified: which Xcode the runner has, and which iOS SDKs it
+      # ships. Cheap to log, and it settles the question.
+      - name: Report toolchain
+        run: |
+          sw_vers
+          ls /Applications | grep -i '^Xcode' || true
+          xcodebuild -version
+          xcodebuild -showsdks | grep -i ios || true
+
+      - name: Build
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project facetrkr.xcodeproj \
+            -scheme facetrkr \
+            -configuration Debug \
+            -destination 'generic/platform=iOS' \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            2>&1 | tee build.log
+
+      # Pulls the errors out of xcodebuild's very noisy output and puts them on
+      # the run summary, so they can be read without opening the full log.
+      - name: Summarise failures
+        if: failure()
+        run: |
+          {
+            echo '## Build failed'
+            echo
+            echo '```'
+            grep -E '(error|warning): ' build.log | sort -u | head -80 || echo 'No error: lines found — check the full log.'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
+          if-no-files-found: ignore
