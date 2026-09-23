@@ -29,11 +29,18 @@ final class FaceSessionCoordinator: NSObject, ARSessionDelegate, FaceSessionCont
     private let effect = OSAllocatedUnfairLock(initialState: FaceEffect.none)
     private let viewport = OSAllocatedUnfairLock(initialState: CGSize.zero)
 
+    /// Written from ARKit's delegate queue, so not plain stored properties.
+    private let tracking = OSAllocatedUnfairLock(initialState: TrackingFlags())
+
+    private struct TrackingFlags {
+        var wasTracked = false
+        var occlusionAdded = false
+    }
+
+    // Main actor only, by way of the class's isolation.
     private weak var arView: ARView?
     private var faceAnchor: AnchorEntity?
     private var maskRoot: Entity?
-    private var occlusionAdded = false
-    private var wasTracked = false
 
     init(state: FaceTrackingState, recorder: VideoRecorder) {
         self.state = state
@@ -78,7 +85,7 @@ final class FaceSessionCoordinator: NSObject, ARSessionDelegate, FaceSessionCont
         state.controller = nil
     }
 
-    private func run(on session: ARSession) {
+    nonisolated private func run(on session: ARSession) {
         let configuration = ARFaceTrackingConfiguration()
         configuration.maximumNumberOfTrackedFaces = 1
         configuration.isLightEstimationEnabled = true
@@ -92,13 +99,16 @@ final class FaceSessionCoordinator: NSObject, ARSessionDelegate, FaceSessionCont
     }
 
     /// Must be active before the session starts, or the mic route is wrong.
-    private func configureAudioSession() {
+    nonisolated private func configureAudioSession() {
         do {
             let session = AVAudioSession.sharedInstance()
             try session.setCategory(
                 .playAndRecord,
                 mode: .videoRecording,
-                options: [.mixWithOthers, .defaultToSpeaker, .allowBluetooth]
+                // No Bluetooth option on purpose. Routing to an HFP headset
+                // would hand us a narrowband mic, which is the wrong trade for
+                // recording, and the non-deprecated spelling is iOS 26 only.
+                options: [.mixWithOthers, .defaultToSpeaker]
             )
             try session.setActive(true)
         } catch {
@@ -164,7 +174,7 @@ final class FaceSessionCoordinator: NSObject, ARSessionDelegate, FaceSessionCont
     /// The only public figure for face-tracking capture resolution is 720p-only
     /// and dates from 2018. It caps recording quality, so log what this device
     /// actually offers rather than assuming.
-    private func logSupportedVideoFormats() {
+    nonisolated private func logSupportedVideoFormats() {
         for format in ARFaceTrackingConfiguration.supportedVideoFormats {
             let size = format.imageResolution
             print("[facetrkr] face video format: \(Int(size.width))x\(Int(size.height)) @ \(format.framesPerSecond)fps")
@@ -178,7 +188,7 @@ final class FaceSessionCoordinator: NSObject, ARSessionDelegate, FaceSessionCont
     /// Uses `ARCamera.projectPoint` rather than `ARView.project` so this can
     /// stay on ARKit's delegate queue instead of hopping to the main actor 60
     /// times a second.
-    func session(_ session: ARSession, didUpdate frame: ARFrame) {
+    nonisolated func session(_ session: ARSession, didUpdate frame: ARFrame) {
         guard let face = frame.anchors.lazy.compactMap({ $0 as? ARFaceAnchor }).first,
               face.isTracked
         else { return }
@@ -204,14 +214,20 @@ final class FaceSessionCoordinator: NSObject, ARSessionDelegate, FaceSessionCont
         // close you are to the camera rather than being fixed in screen space.
         let radius = min(0.45, max(0.08, abs(crown.y - centre.y) * 2.2))
 
+        let leftEye = project(FaceLandmark.eye(.left))
+        let rightEye = project(FaceLandmark.eye(.right))
+        let mouth = project(FaceLandmark.mouth)
+
         let currentEffect = effect.withLock { $0 }
         let jawOpen = face.blendShapes[.jawOpen]?.floatValue ?? 0
 
+        // Everything is computed before the lock is taken: this runs 60 times a
+        // second and the render thread contends for the same lock.
         frameSource.withLock { source in
             source?.updateLandmarks(
-                leftEye: project(FaceLandmark.eye(.left)),
-                rightEye: project(FaceLandmark.eye(.right)),
-                mouth: project(FaceLandmark.mouth),
+                leftEye: leftEye,
+                rightEye: rightEye,
+                mouth: mouth,
                 centre: centre,
                 radius: radius
             )
@@ -224,11 +240,16 @@ final class FaceSessionCoordinator: NSObject, ARSessionDelegate, FaceSessionCont
         }
     }
 
-    func session(_ session: ARSession, didUpdate anchors: [ARAnchor]) {
+    nonisolated func session(_ session: ARSession, didUpdate anchors: [ARAnchor]) {
         guard let face = anchors.lazy.compactMap({ $0 as? ARFaceAnchor }).first else { return }
 
-        if !occlusionAdded, face.isTracked {
-            occlusionAdded = true
+        let shouldAddOcclusion = tracking.withLock { flags -> Bool in
+            guard !flags.occlusionAdded, face.isTracked else { return false }
+            flags.occlusionAdded = true
+            return true
+        }
+
+        if shouldAddOcclusion {
             let geometry = face.geometry
             Task { @MainActor [weak self] in
                 guard let self, let anchor = self.faceAnchor,
@@ -238,30 +259,34 @@ final class FaceSessionCoordinator: NSObject, ARSessionDelegate, FaceSessionCont
         }
 
         // Fires at 60Hz, so only hop to the main actor when it actually changes.
-        guard face.isTracked != wasTracked else { return }
-        wasTracked = face.isTracked
         let tracked = face.isTracked
+        let changed = tracking.withLock { flags -> Bool in
+            guard flags.wasTracked != tracked else { return false }
+            flags.wasTracked = tracked
+            return true
+        }
+        guard changed else { return }
+
         Task { @MainActor [weak self] in
             self?.state.update(to: tracked ? .tracking : .searching)
         }
     }
 
-    func session(_ session: ARSession, didOutputAudioSampleBuffer audioSampleBuffer: CMSampleBuffer) {
+    nonisolated func session(_ session: ARSession, didOutputAudioSampleBuffer audioSampleBuffer: CMSampleBuffer) {
         recorder.appendAudio(audioSampleBuffer)
     }
 
-    func session(_ session: ARSession, didFailWithError error: Error) {
+    nonisolated func session(_ session: ARSession, didFailWithError error: Error) {
         let message = (error as NSError).localizedDescription
         Task { @MainActor [weak self] in self?.state.update(to: .failed(message)) }
     }
 
-    func sessionWasInterrupted(_ session: ARSession) {
+    nonisolated func sessionWasInterrupted(_ session: ARSession) {
         Task { @MainActor [weak self] in self?.state.update(to: .searching) }
     }
 
-    func sessionInterruptionEnded(_ session: ARSession) {
-        guard let session = arView?.session else { return }
-        occlusionAdded = false
+    nonisolated func sessionInterruptionEnded(_ session: ARSession) {
+        tracking.withLock { $0.occlusionAdded = false }
         run(on: session)
     }
 }

@@ -5,9 +5,11 @@ name: Build
 # A macOS runner is the cheapest way to find that out without a human at a Mac.
 # Public repo, so macOS minutes are free.
 
+# Push is scoped to main so a branch with an open PR gets one run, not two:
+# the pull_request trigger already covers it.
 on:
   push:
-    branches: ['**']
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
