@@ -99,8 +99,12 @@ background. Run the spike first.
 
 ## M2 and M3 acceptance
 
-- Each mask switches cleanly. Watch memory across ~20 switches; the mask root is
-  swapped rather than the anchor, so nothing should climb.
+- Each of the 17 masks switches cleanly. Watch memory across a full pass of the
+  carousel; the mask root is swapped rather than the anchor, so nothing should
+  climb.
+- Masks are positioned from eyeballed landmark averages in `FaceLandmark`, not
+  measured ones. Expect some to sit slightly off on a real face — that enum is
+  the one place to nudge.
 - Turn your head 45 degrees each way. The goggle arms should disappear behind
   your head rather than passing through it. That's the occlusion mesh working.
 - Record 10 seconds, then check the clip in Photos: audio in sync, correct

@@ -19,12 +19,30 @@ struct Mask: Identifiable {
 enum MaskLibrary {
 
     static let all: [Mask] = [
-        Mask(id: "none",    name: "None",    symbol: "person",              build: { Entity() }),
-        Mask(id: "dog",     name: "Dog",     symbol: "pawprint.fill",       build: ProceduralMasks.dog),
-        Mask(id: "pig",     name: "Pig",     symbol: "snowflake",           build: ProceduralMasks.pig),
-        Mask(id: "goggles", name: "Goggles", symbol: "eyeglasses",          build: ProceduralMasks.goggles),
-        Mask(id: "knight",  name: "Knight",  symbol: "shield.fill",         build: ProceduralMasks.knight),
-        Mask(id: "antlers", name: "Antlers", symbol: "tree.fill",           build: ProceduralMasks.antlers),
+        Mask(id: "none",     name: "None",     symbol: "person",            build: { Entity() }),
+
+        // Animals
+        Mask(id: "dog",      name: "Dog",      symbol: "dog.fill",          build: ProceduralMasks.dog),
+        Mask(id: "cat",      name: "Cat",      symbol: "cat.fill",          build: ProceduralMasks.cat),
+        Mask(id: "bunny",    name: "Bunny",    symbol: "hare.fill",         build: ProceduralMasks.bunny),
+        Mask(id: "pig",      name: "Pig",      symbol: "pawprint.fill",     build: ProceduralMasks.pig),
+        Mask(id: "frog",     name: "Frog",     symbol: "leaf.fill",         build: ProceduralMasks.frog),
+        Mask(id: "bee",      name: "Bee",      symbol: "ant.fill",          build: ProceduralMasks.bee),
+        Mask(id: "unicorn",  name: "Unicorn",  symbol: "sparkle",           build: ProceduralMasks.unicorn),
+        Mask(id: "antlers",  name: "Antlers",  symbol: "tree.fill",         build: ProceduralMasks.antlers),
+
+        // Characters
+        Mask(id: "clown",    name: "Clown",    symbol: "theatermasks.fill", build: ProceduralMasks.clown),
+        Mask(id: "pirate",   name: "Pirate",   symbol: "eye.slash.fill",    build: ProceduralMasks.pirate),
+        Mask(id: "wizard",   name: "Wizard",   symbol: "wand.and.stars",    build: ProceduralMasks.wizard),
+        Mask(id: "knight",   name: "Knight",   symbol: "shield.fill",       build: ProceduralMasks.knight),
+        Mask(id: "robot",    name: "Robot",    symbol: "gearshape.fill",    build: ProceduralMasks.robot),
+        Mask(id: "alien",    name: "Alien",    symbol: "moon.stars.fill",   build: ProceduralMasks.alien),
+        Mask(id: "cyclops",  name: "Cyclops",  symbol: "eye.fill",          build: ProceduralMasks.cyclops),
+
+        // Gear
+        Mask(id: "goggles",  name: "Goggles",  symbol: "eyeglasses",        build: ProceduralMasks.goggles),
+        Mask(id: "scuba",    name: "Scuba",    symbol: "drop.fill",         build: ProceduralMasks.scuba),
     ]
 
     static var `default`: Mask { all[1] }
@@ -62,6 +80,11 @@ enum FaceLandmark {
         case left, right
         var sign: Float { self == .left ? -1 : 1 }
     }
+
+    /// Mirrors a position across the face's midline.
+    static func mirrored(_ position: SIMD3<Float>, _ side: Side) -> SIMD3<Float> {
+        SIMD3(position.x * side.sign, position.y, position.z)
+    }
 }
 
 // MARK: - Building blocks
@@ -86,5 +109,40 @@ extension Entity {
         entity.orientation = rotation
         entity.scale = scale
         return entity
+    }
+
+    /// Builds the same part on both sides of the face.
+    ///
+    /// Most props are symmetrical, and writing the loop out each time buried
+    /// the interesting numbers in boilerplate. The `x` of `at` is treated as a
+    /// distance from the midline and mirrored; `tilt` is applied about the
+    /// roll axis and mirrored with it.
+    static func pair(
+        _ mesh: MeshResource,
+        color: UIColor,
+        at position: SIMD3<Float>,
+        tilt: Float = 0,
+        scale: SIMD3<Float> = .one,
+        roughness: Float = 0.6,
+        metallic: Bool = false
+    ) -> [Entity] {
+        FaceLandmark.Side.allCases.map { side in
+            part(
+                mesh,
+                color: color,
+                at: FaceLandmark.mirrored(position, side),
+                rotation: simd_quatf(angle: tilt * side.sign, axis: [0, 0, 1]),
+                scale: scale,
+                roughness: roughness,
+                metallic: metallic
+            )
+        }
+    }
+
+    /// Adds several children in one go, so builders read as a parts list.
+    func add(_ parts: [Entity]...) {
+        for group in parts {
+            for part in group { addChild(part) }
+        }
     }
 }
