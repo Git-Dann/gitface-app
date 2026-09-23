@@ -1,0 +1,112 @@
+import SwiftUI
+
+struct ContentView: View {
+
+    @StateObject private var state = FaceTrackingState()
+    @State private var showsDebugControls = false
+
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+
+            if state.isSupported {
+                FaceARView(state: state)
+                    .ignoresSafeArea()
+            } else {
+                unsupportedView
+            }
+
+            overlay
+        }
+        .alert(
+            "Something went wrong",
+            isPresented: Binding(
+                get: { state.errorMessage != nil },
+                set: { if !$0 { state.errorMessage = nil } }
+            ),
+            actions: { Button("OK", role: .cancel) { state.errorMessage = nil } },
+            message: { Text(state.errorMessage ?? "") }
+        )
+    }
+
+    // MARK: - Overlay
+
+    private var overlay: some View {
+        VStack {
+            statusPill
+                .padding(.top, 12)
+
+            Spacer()
+
+            if state.isSupported {
+                VStack(spacing: 22) {
+                    if showsDebugControls { debugControls }
+
+                    MaskCarousel(
+                        selection: $state.selectedMask,
+                        isEnabled: state.recording == .idle
+                    )
+
+                    RecordButton(
+                        recording: state.recording,
+                        progress: state.elapsed / state.maximumDuration,
+                        isEnabled: state.canRecord,
+                        action: state.toggleRecording
+                    )
+                }
+                .padding(.bottom, 34)
+            }
+        }
+    }
+
+    private var statusPill: some View {
+        HStack(spacing: 8) {
+            if state.recording == .recording {
+                Circle().fill(.red).frame(width: 8, height: 8)
+                Text(timecode)
+                    .monospacedDigit()
+            } else {
+                Text(state.status.message)
+            }
+        }
+        .font(.callout.weight(.medium))
+        .foregroundStyle(.white)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .background(.ultraThinMaterial, in: Capsule())
+        .onTapGesture(count: 3) { showsDebugControls.toggle() }
+    }
+
+    /// Hidden behind a triple tap on the status pill. The tint spike is a
+    /// diagnostic, not a feature, and comes out once M1 is settled.
+    private var debugControls: some View {
+        Toggle("Red tint spike", isOn: $state.isTintSpikeEnabled)
+            .font(.footnote)
+            .foregroundStyle(.white)
+            .padding(.horizontal, 40)
+    }
+
+    private var unsupportedView: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "face.dashed")
+                .font(.system(size: 52))
+            Text("Face tracking isn't available")
+                .font(.headline)
+            Text("This device doesn't support ARKit face tracking.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .foregroundStyle(.white)
+        .padding(40)
+    }
+
+    private var timecode: String {
+        let total = Int(state.elapsed)
+        return String(format: "%01d:%02d", total / 60, total % 60)
+    }
+}
+
+#Preview {
+    ContentView()
+}

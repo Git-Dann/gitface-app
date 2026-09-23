@@ -38,78 +38,38 @@ Two notes on the surrounding tech, both counterintuitive in 2026:
 
 ## Setup
 
-The Xcode project is created locally and committed; the agent working on this repo
-runs on Linux and fills in sources.
+The Xcode project is generated and committed, so there is nothing to assemble.
 
-1. Clone and check out the working branch:
+```bash
+git clone https://github.com/Git-Dann/gitface-app ~/Developer/gitface-app
+cd ~/Developer/gitface-app
+git checkout claude/gifted-allen-fkkh38
+open facetrkr.xcodeproj
+```
 
-   ```bash
-   git clone https://github.com/Git-Dann/gitface-app ~/Developer/gitface-app
-   cd ~/Developer/gitface-app
-   git checkout claude/gifted-allen-fkkh38
-   ```
+Set your signing team under **Signing & Capabilities**, pick your iPhone, and Run.
+The Simulator cannot do face tracking, so it has to be the device.
 
-2. Move the Xcode project in from wherever you created it. If it's still in
-   Xcode's scratch area, get it out of there — that directory is disposable:
+The project uses a file-system-synchronized folder for the app target, so new
+source files land in the build with no project-file edits.
 
-   ```bash
-   mv "/Users/daniellindsay/Library/Developer/Xcode/UntitledProjects/Untitled Project/"* .
-   ```
+**Nothing here has been compiled.** It was written on Linux, where there is no
+Swift toolchain, so expect some build errors on first open. Paste them and
+they'll get fixed.
 
-3. Open `facetrkr.xcodeproj` and confirm:
-   - Deployment target **iOS 18.0**
-   - Interface **SwiftUI**
-   - The app target uses a **file-system-synchronized folder** — a blue folder
-     icon, not a yellow group. Xcode 16+ does this by default and it means new
-     source files appear in the target with no project-file edits. If it's a
-     yellow group, say so; files will need dragging in manually.
-
-4. Add the camera purpose string. In **Build Settings → Info.plist Values**, set
-   `Privacy - Camera Usage Description` to something specific:
-
-   > Used to show 3D masks on your face in the live camera view and to record videos.
-
-   Vague purpose strings are a routine App Review rejection, and specific ones are
-   better for users regardless. Microphone and photo library strings come in M3.
-
-5. Replace the body of `ContentView.swift` with:
-
-   ```swift
-   import SwiftUI
-
-   struct ContentView: View {
-       @StateObject private var state = FaceTrackingState()
-
-       var body: some View {
-           ZStack(alignment: .bottom) {
-               FaceARView(state: state)
-                   .ignoresSafeArea()
-
-               VStack(spacing: 12) {
-                   Text(state.status.message)
-                       .font(.callout.weight(.medium))
-                       .padding(.horizontal, 14)
-                       .padding(.vertical, 8)
-                       .background(.thinMaterial, in: Capsule())
-
-                   Toggle("Red tint spike", isOn: $state.isTintSpikeEnabled)
-                       .padding(.horizontal, 40)
-               }
-               .padding(.bottom, 40)
-           }
-       }
-   }
-   ```
-
-6. Build and run **on the device**. The Simulator cannot do face tracking.
+If the generated project refuses to open, the fallback costs five minutes and
+loses nothing: create a blank SwiftUI app named `facetrkr` at the repo root in
+Xcode, and the existing `facetrkr/` sources drop straight in because the folder
+layout already matches the template.
 
 ## M1 acceptance
 
 - Camera permission prompts once, with your purpose string.
-- A pink cube sits at your nose tip and tracks head rotation and translation.
+- A mask sits on your face and tracks head rotation and translation.
 - The console logs the supported face-tracking video formats. Note them — the only
   public data point is 720p-only and it dates from 2018.
-- **The spike:** flip "Red tint spike" on.
+- **The spike:** triple-tap the status pill to reveal the debug toggle, then
+  flip "Red tint spike" on.
   - Camera feed turns red → `sourceColorTexture` includes passthrough. The
     recording architecture holds and M2/M3 proceed as planned.
   - Only the cube turns red → passthrough is not included. Recording has to
@@ -119,15 +79,36 @@ runs on Linux and fills in sources.
   why it's checked before anything is built on top of it.
 - Backgrounding and returning doesn't kill the session.
 
+## M2 and M3 acceptance
+
+- Each mask switches cleanly. Watch memory across ~20 switches; the mask root is
+  swapped rather than the anchor, so nothing should climb.
+- Turn your head 45 degrees each way. The goggle arms should disappear behind
+  your head rather than passing through it. That's the occlusion mesh working.
+- Record 10 seconds, then check the clip in Photos: audio in sync, correct
+  orientation, no washed-out colour, and the encoded frame rate matching 60
+  rather than showing duplicate frames.
+- Record for the full 60 seconds and confirm it finalises cleanly at the cap.
+- Record while switching masks mid-clip.
+
+Known things to watch, all flagged in the plan:
+
+- Recording taps the frame *before* it reaches the drawable, so a drawable that
+  isn't readable won't break it. But if the passthrough spike fails, the tap is
+  capturing 3D content on a transparent background, and the fix is a different
+  `FrameSource` implementation rather than a rewrite.
+- `providesAudioData` has been reported silently not delivering on some iOS
+  builds. Silent video with everything else working points there first.
+
 ## Roadmap
 
-| Milestone | Scope |
-|---|---|
-| M1 | Face tracking, nose marker, passthrough spike ← **here** |
-| M2 | Procedural props, face occlusion mesh, mask carousel |
-| M3 | Frame tap, `AVAssetWriter`, save to camera roll, share |
-| M4 | Distortion shaders (bulge eyes, stretch jaw, big head) |
-| M5 | Thermal governor, clip cap, expression-triggered effects |
+| Milestone | Scope | State |
+|---|---|---|
+| M1 | Face tracking, passthrough spike | built |
+| M2 | Procedural props, face occlusion mesh, mask carousel | built |
+| M3 | Frame tap, `AVAssetWriter`, save to camera roll | built |
+| M4 | Distortion shaders (bulge eyes, stretch jaw, big head) | next |
+| M5 | Thermal governor, expression-triggered effects, share sheet | later |
 
 ## Privacy
 

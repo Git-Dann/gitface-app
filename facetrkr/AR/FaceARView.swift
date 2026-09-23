@@ -8,7 +8,7 @@ struct FaceARView: UIViewRepresentable {
     @ObservedObject var state: FaceTrackingState
 
     func makeCoordinator() -> FaceSessionCoordinator {
-        FaceSessionCoordinator(state: state)
+        FaceSessionCoordinator(state: state, recorder: state.recorder)
     }
 
     func makeUIView(context: Context) -> ARView {
@@ -21,9 +21,10 @@ struct FaceARView: UIViewRepresentable {
         return arView
     }
 
-    func updateUIView(_ arView: ARView, context: Context) {
-        context.coordinator.setTintSpikeEnabled(state.isTintSpikeEnabled)
-    }
+    /// Intentionally empty. Mask selection and the spike toggle push straight
+    /// through to the coordinator from the view model's `didSet`, so there is
+    /// nothing to reconcile on a redraw.
+    func updateUIView(_ arView: ARView, context: Context) {}
 
     static func dismantleUIView(_ arView: ARView, coordinator: FaceSessionCoordinator) {
         coordinator.detach()
