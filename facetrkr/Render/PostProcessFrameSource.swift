@@ -44,7 +44,11 @@ final class PostProcessFrameSource {
     // MARK: Setup
 
     init?(arView: ARView, recorder: VideoRecorder) {
-        guard let device = arView.device ?? MTLCreateSystemDefaultDevice(),
+        // `ARView` exposes no `device`. On iOS there is a single GPU, so the
+        // system default is the one RealityKit renders with; the post-process
+        // context also hands back a `device` per frame if that ever stops
+        // being true.
+        guard let device = MTLCreateSystemDefaultDevice(),
               let library = device.makeDefaultLibrary(),
               let compositeFunction = library.makeFunction(name: "composite"),
               let downscaleFunction = library.makeFunction(name: "downscaleToRecord"),

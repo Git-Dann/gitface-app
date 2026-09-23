@@ -7,7 +7,12 @@ import os
 /// All mutable state lives behind `queue`. Video frames arrive from the render
 /// thread and audio from ARKit's delegate queue, so nothing here may assume the
 /// main actor, and nothing may block its caller.
-final class VideoRecorder {
+///
+/// `@unchecked Sendable` is load-bearing rather than a silencer: every stored
+/// property is either confined to `queue` or is itself a lock. Adding a
+/// property that is read or written outside `queue` breaks that invariant, and
+/// the compiler will not catch it.
+final class VideoRecorder: @unchecked Sendable {
 
     enum Failure: LocalizedError {
         case alreadyRecording
