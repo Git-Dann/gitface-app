@@ -4,6 +4,66 @@ Face-tracked 3D masks and distortion effects on iPhone, recorded to video.
 
 Native ARKit + RealityKit. No third-party AR SDK.
 
+---
+
+## Start here
+
+Everything compiles green on CI, but nothing has ever been run. These are the
+steps from a fresh clone to the app on your phone.
+
+### 1. Open it
+
+```bash
+git clone https://github.com/Git-Dann/gitface-app ~/Developer/gitface-app
+cd ~/Developer/gitface-app
+git checkout claude/gifted-allen-fkkh38
+open facetrkr.xcodeproj
+```
+
+### 2. Set the signing team
+
+Click **facetrkr** at the top of the sidebar, then the **facetrkr** target, then
+**Signing & Capabilities**. Set **Team** to Gitwork Ltd. The bundle ID is
+already `co.gitwork.facetrkr`.
+
+### 3. Run on the phone
+
+Plug the iPhone in, unlock it, pick it from the device dropdown, press **⌘R**.
+The Simulator cannot do face tracking, so it has to be a real device.
+
+The first launch fails with "Untrusted Developer". That is normal. On the phone:
+**Settings → General → VPN & Device Management → Gitwork Ltd → Trust**, then
+press ⌘R again.
+
+### 4. Run the passthrough test
+
+This is the one measurement the whole design rests on.
+
+**Triple-tap the status pill** at the top of the screen to reveal the debug
+toggle, then turn on **Red tint spike**.
+
+| What you see | What it means |
+|---|---|
+| Camera feed and background go red | `sourceColorTexture` includes passthrough. Recording and distortion work as designed. |
+| Only the mask goes red | Passthrough is absent. Recording captures props on a transparent background, distortion has nothing to warp, and the frame source needs a different implementation. |
+
+That claim comes from a WWDC21 example rather than documentation, which is why
+it is checked before anything is built on top of it.
+
+### 5. Note the capture resolution
+
+Filter the Xcode console for `facetrkr` and record the lines reading
+`[facetrkr] face video format: …`. They cap the recording quality. The only
+public figure is 720p-only and dates from 2018.
+
+### Expect rough edges
+
+Mask positions come from eyeballed landmark averages in `FaceLandmark`
+(`facetrkr/AR/MaskLibrary.swift`), not measured ones, so some props will sit
+wrong on a real face. That enum is the single place to correct them.
+
+---
+
 ## Why it's built this way
 
 RealityKit's post-process render callback hands you the **already-composited**
@@ -36,48 +96,20 @@ Two notes on the surrounding tech, both counterintuitive in 2026:
 - **`ARView`, not `RealityView`.** Blendshape coefficients only arrive via
   `ARSessionDelegate`, and `ARView` exposes `.session` directly.
 
-## Setup
+## Repository notes
 
 The Xcode project is generated and committed, so there is nothing to assemble.
+The app target uses a file-system-synchronized folder, so new source files land
+in the build with no project-file edits.
 
-```bash
-git clone https://github.com/Git-Dann/gitface-app ~/Developer/gitface-app
-cd ~/Developer/gitface-app
-git checkout claude/gifted-allen-fkkh38
-open facetrkr.xcodeproj
-```
+The `Build for iOS` workflow compiles the project on a macOS runner with signing
+disabled, which is what keeps the code honest: it was written on Linux, where
+there is no Swift toolchain.
 
-Set your signing team under **Signing & Capabilities**, pick your iPhone, and Run.
-The Simulator cannot do face tracking, so it has to be the device.
-
-The project uses a file-system-synchronized folder for the app target, so new
-source files land in the build with no project-file edits.
-
-**Nothing here has been compiled.** It was written on Linux, where there is no
-Swift toolchain, so expect some build errors on first open. Paste them and
-they'll get fixed.
-
-If the generated project refuses to open, the fallback costs five minutes and
-loses nothing: create a blank SwiftUI app named `facetrkr` at the repo root in
-Xcode, and the existing `facetrkr/` sources drop straight in because the folder
-layout already matches the template.
-
-## M1 acceptance
-
-- Camera permission prompts once, with your purpose string.
-- A mask sits on your face and tracks head rotation and translation.
-- The console logs the supported face-tracking video formats. Note them — the only
-  public data point is 720p-only and it dates from 2018.
-- **The spike:** triple-tap the status pill to reveal the debug toggle, then
-  flip "Red tint spike" on.
-  - Camera feed turns red → `sourceColorTexture` includes passthrough. The
-    recording architecture holds and M2/M3 proceed as planned.
-  - Only the cube turns red → passthrough is not included. Recording has to
-    composite `ARFrame.capturedImage` manually and gets meaningfully harder.
-
-  This claim is inferred from a WWDC21 example rather than documented, which is
-  why it's checked before anything is built on top of it.
-- Backgrounding and returning doesn't kill the session.
+If the project ever refuses to open, the fallback costs five minutes and loses
+nothing: create a blank SwiftUI app named `facetrkr` at the repo root in Xcode,
+and the existing `facetrkr/` sources drop straight in, because the folder layout
+already matches the template.
 
 ## M4 notes
 
