@@ -122,6 +122,57 @@ Known things to watch, all flagged in the plan:
 - `providesAudioData` has been reported silently not delivering on some iOS
   builds. Silent video with everything else working points there first.
 
+## TestFlight
+
+Builds are signed and uploaded by the `TestFlight` workflow, so no Mac is
+involved. Tag a commit `v0.2` and push it, or run the workflow by hand from the
+Actions tab.
+
+### One-off setup
+
+1. **Create the app record.** In App Store Connect, add a new iOS app with the
+   bundle ID `co.gitwork.facetrkr`. Signing assets are created automatically by
+   the workflow, but the app record is not, and the upload fails without it.
+
+2. **Create an App Store Connect API key.** Users and Access → Integrations →
+   App Store Connect API → Team Keys. Give it the **App Manager** role. The
+   `.p8` downloads exactly once, so keep it somewhere safe.
+
+3. **Add four repository secrets** (Settings → Secrets and variables → Actions):
+
+   | Secret | Where it comes from |
+   |---|---|
+   | `APP_STORE_CONNECT_KEY_ID` | Shown next to the key you just made |
+   | `APP_STORE_CONNECT_ISSUER_ID` | At the top of the same Keys page |
+   | `APP_STORE_CONNECT_PRIVATE_KEY` | The full contents of the `.p8`, `BEGIN`/`END` lines included |
+   | `APPLE_TEAM_ID` | Developer portal → Membership details |
+
+The build number comes from the Actions run number, because App Store Connect
+refuses a build number it has seen before. The marketing version comes from the
+tag.
+
+### Things worth knowing before the first upload
+
+- **This repo is public.** GitHub withholds secrets from fork pull requests, and
+  this workflow only runs on tag pushes and manual dispatch, both of which need
+  write access. That is sound, but these are company credentials, so consider
+  putting the job behind a protected Environment so uploads need an approval.
+
+- **Internal vs external testers.** Internal testers have to be users on
+  Gitwork Ltd's App Store Connect account, capped at 100, and get builds
+  immediately. Anyone outside the company is an external tester, which means
+  Beta App Review on the first build and needs a privacy policy URL. For mates
+  outside Gitwork, budget for that rather than expecting an instant link.
+
+- **A privacy policy is not optional here.** The Apple Developer Program License
+  Agreement requires one describing the use of face data for any app using
+  ARKit face tracking. This app keeps all face data on device, which makes the
+  policy short, but it still has to exist.
+
+- **Export compliance** is pre-answered in the project
+  (`ITSAppUsesNonExemptEncryption = NO`), since the app ships no encryption of
+  its own. Without it, every single upload stops and asks.
+
 ## Roadmap
 
 | Milestone | Scope | State |

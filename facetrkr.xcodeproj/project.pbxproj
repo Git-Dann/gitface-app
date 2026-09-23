@@ -190,6 +190,7 @@
 				DEVELOPMENT_TEAM = "";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Used to show 3D masks on your face in the live camera view and to record videos.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Used to record sound alongside your videos.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Used to save the videos you record to your photo library.";
@@ -219,6 +220,7 @@
 				DEVELOPMENT_TEAM = "";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Used to show 3D masks on your face in the live camera view and to record videos.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Used to record sound alongside your videos.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Used to save the videos you record to your photo library.";
