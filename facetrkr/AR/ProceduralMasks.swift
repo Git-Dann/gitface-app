@@ -78,7 +78,11 @@ enum ProceduralMasks {
         let root = Entity()
 
         let count = 11
-        let arc: Float = 2.40          // radians either side of the crown
+        // A horseshoe over the head, not a closed ring. Taken round to 2.40 the
+        // lowest rollers landed inside the face at ear height; the photograph
+        // has them clear of the cheeks, so the ellipse is wider and the arc
+        // stops short of the ears.
+        let arc: Float = 2.05          // radians either side of the crown
         let drum = rollerMaterial()
         let rim = plasticMaterial(Shade.rollerBand, roughness: 0.35)
         let wound = plasticMaterial(Shade.hair, roughness: 0.92)
@@ -104,8 +108,10 @@ enum ProceduralMasks {
 
             let roller = Entity()
             roller.position = [
-                sin(angle) * 0.094,
-                0.065 + cos(angle) * 0.070,
+                // Wider than the head: the temple is at 0.068 and these sit
+                // outside it, as hair in rollers does.
+                sin(angle) * 0.105,
+                0.072 + cos(angle) * 0.062,
                 // The ones down the sides sit further back, following the skull.
                 0.012 - (1 - cos(angle)) * 0.016
             ]
