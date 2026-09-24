@@ -30,11 +30,11 @@ enum ProceduralTexture {
         case rollerNormal
         /// Glossy plastic web against matte holes.
         case rollerRoughness
-    }
 
-    /// Big enough for the perforations to survive mipmapping at arm's length,
-    /// small enough that building two of them is not felt at launch.
-    private static let size = 256
+        /// Big enough for the perforations to survive mipmapping at arm's
+        /// length, small enough that building them is not felt at launch.
+        var size: Int { 256 }
+    }
 
     private static var cache: [Key: TextureResource] = [:]
 
@@ -51,16 +51,17 @@ enum ProceduralTexture {
     static func warm() async {
         guard !isWarm else { return }
 
-        let pixelSize = size
-        let normal = await Task.detached(priority: .userInitiated) {
-            normalMapPixels(size: pixelSize, strength: 2.4, height: rollerHeight)
-        }.value
-        let roughness = await Task.detached(priority: .userInitiated) {
-            scalarMapPixels(size: pixelSize, value: rollerRoughness)
+        let size = Key.rollerNormal.size
+
+        let built = await Task.detached(priority: .userInitiated) {
+            (
+                normal: normalMapPixels(size: size, strength: 2.4, height: rollerHeight),
+                roughness: scalarMapPixels(size: size, value: rollerRoughness)
+            )
         }.value
 
-        await store(normal, as: .rollerNormal, semantic: .normal)
-        await store(roughness, as: .rollerRoughness, semantic: .raw)
+        await store(built.normal, as: .rollerNormal, semantic: .normal)
+        await store(built.roughness, as: .rollerRoughness, semantic: .raw)
     }
 
     private static func store(
@@ -68,7 +69,7 @@ enum ProceduralTexture {
         as key: Key,
         semantic: TextureResource.Semantic
     ) async {
-        guard let image = Self.image(from: pixels, size: size) else { return }
+        guard let image = Self.image(from: pixels, size: key.size) else { return }
         do {
             cache[key] = try await TextureResource(
                 image: image,

@@ -35,138 +35,105 @@ enum ProceduralMasks {
 
     // MARK: - Grandma
 
-    /// The reference lens: curler crown, grey hair, heavy square frames.
+    /// The reference lens: a silver roller set over heavy square frames.
     ///
-    /// The curlers carry the silhouette, which is what makes this work without
-    /// a real hair asset. Snap's own lens leans on the same trick: get the
-    /// crown right and the eye reads "hair" without any strands being modelled.
+    /// The hair is the one part not built from primitives. Procedural hair cards
+    /// were the plan until Dan supplied a modelled wig, and modelled strands beat
+    /// cards by enough to be worth the conversion. See `WigMesh` for what that
+    /// conversion drops and why.
+    ///
+    /// The rollers are still ours. The supplied ones were flat colour with no
+    /// texture maps at all, whereas these carry generated normal and roughness
+    /// maps, so they catch light across their surface. They sit at the supplied
+    /// transforms though — the hair is modelled wound around them, and moving
+    /// them leaves barrel-shaped holes in it.
     static func grandma() -> Entity {
         let root = Entity()
-        root.addChild(templeWisps())
+        root.addChild(wig())
         root.addChild(curlerCrown())
         root.addChild(readingGlasses())
         return root
     }
 
-    /// Wisps of grey at the temples.
-    ///
-    /// There was a skullcap here, meant to stop the scalp showing through the
-    /// gaps in the crown. It was a sphere larger than a head, centred inside
-    /// the skull and protruding past the nose, so on device it simply covered
-    /// the face. It is gone rather than resized: the curlers already carry the
-    /// silhouette, which was the whole reason for building them.
-    private static func templeWisps() -> Entity {
+    /// The converted wig, one entity per material group.
+    private static func wig() -> Entity {
         let root = Entity()
-
-        // Sparse and opaque: RealityKit's transparency is unreliable on 26, so
-        // these are solid slivers rather than alpha-blended hair cards.
-        for side in FaceLandmark.Side.allCases {
-            for (index, tilt) in [Float(0.55), 0.20, -0.15].enumerated() {
-                root.addChild(.part(
-                    .generateBox(width: 0.010, height: 0.052, depth: 0.006, cornerRadius: 0.005),
-                    color: Shade.hair,
-                    at: FaceLandmark.temple(side) + [0.020 * side.sign,
-                                                     0.030 - Float(index) * 0.016,
-                                                     -0.016],
-                    rotation: simd_quatf(angle: tilt * side.sign, axis: [0, 0, 1]),
-                    roughness: 0.9
-                ))
-            }
+        for group in WigMesh.groups() {
+            var material = PhysicallyBasedMaterial()
+            material.baseColor = .init(tint: group.baseColour, texture: nil)
+            material.roughness = .init(floatLiteral: group.roughness)
+            material.metallic = .init(floatLiteral: group.metallic)
+            // Hair is anisotropic: it catches a band of light along the strand
+            // rather than a round highlight. Without this the strands read as
+            // grey plastic tubes however many of them there are.
+            material.anisotropyLevel = .init(floatLiteral: 0.8)
+            // Strands are modelled geometry here, so both faces of a tube can
+            // face the camera as the head turns.
+            material.faceCulling = .none
+            root.addChild(.shaped(group.mesh, material: material))
         }
         return root
     }
 
-    /// Curlers around the hairline.
+    /// The rollers, rebuilt at the wig's own transforms.
     ///
-    /// Placed around an arc rather than built as a ring, because RealityKit has
-    /// no torus primitive.
+    /// Placed around an arc before, which was fine when the hair was procedural
+    /// too. Now the hair is modelled wound around nine specific rollers, so the
+    /// positions come from `WigPlacement`, generated from the same file.
     ///
-    /// The first version was three plain cylinders in a flat colour, which is
-    /// why they read as featureless plastic: nothing on the surface for light
-    /// to catch. A real roller is a perforated drum with flanged ends, a wire
-    /// clip across it, and hair wound through the holes. All of that is here
-    /// now — the perforations as a generated normal map, the plastic-against-
-    /// holes contrast as a roughness map, the rest as geometry.
+    /// The sizes come from there as well and are larger than a real roller —
+    /// about 8 cm long. That is the look the supplied asset went for, and the
+    /// hair is shaped to it, so shrinking them to life size would only open
+    /// gaps.
     ///
-    /// Sizes and colours vary across the crown because a real set does: larger
-    /// rollers on top for lift, smaller ones at the temples.
+    /// The first version of these was three plain cylinders in a flat colour,
+    /// which is why they read as featureless plastic: nothing on the surface for
+    /// light to catch. A real roller is a perforated drum with flanged ends and
+    /// a wire clip, and all of that is here now — the perforations as a
+    /// generated normal map, the plastic-against-holes contrast as a roughness
+    /// map, the rest as geometry.
     private static func curlerCrown() -> Entity {
         let root = Entity()
-        let count = 9
-        let arc: Float = .pi * 1.15
-        let radius: Float = 0.098
 
         let drum = rollerMaterial()
         let flange = plasticMaterial(Shade.rollerBand, roughness: 0.35)
-        let wound = plasticMaterial(Shade.hair, roughness: 0.92)
+        let face = plasticMaterial(Shade.roller, roughness: 0.45)
         let wire = plasticMaterial(Shade.steel, roughness: 0.25, metallic: true)
 
-        for index in 0..<count {
-            let t = Float(index) / Float(count - 1)
-            let angle = -arc / 2 + arc * t
+        let length = WigPlacement.barrelLength
+        let radius = WigPlacement.barrelRadius
+        let rimRadius = WigPlacement.rimRadius
+        let rimLength = WigPlacement.rimLength
 
-            // Fattest at the crown, tapering to the temples. `t` runs 0-1
-            // across the arc, so this is a shallow arch about its middle.
-            let scale = 0.82 + 0.18 * sin(t * .pi)
-            let drumRadius = 0.019 * scale
-            let drumLength = 0.042 * scale
+        let barrel = CylinderMesh.generate(length: length, radius: radius, capped: false)
+        let rim = CylinderMesh.generate(length: rimLength, radius: rimRadius, segments: 20)
+        let cap = CylinderMesh.generate(
+            length: rimLength * 0.35,
+            radius: rimRadius * 0.82,
+            segments: 20
+        )
+        let clip = CylinderMesh.generate(length: length * 1.02, radius: radius * 0.07, segments: 8)
 
-            let curler = Entity()
-            curler.position = FaceLandmark.crown + [
-                sin(angle) * radius,
-                cos(angle) * radius * 0.42 - 0.012,
-                -0.014
-            ]
-            // Each curler lies tangent to the arc, so the crown reads as a ring
-            // of rollers rather than a row of loose cylinders.
-            curler.orientation = simd_quatf(angle: angle, axis: [0, 0, 1])
+        for placement in WigPlacement.rollers {
+            let roller = Entity()
+            roller.position = placement.position
+            roller.orientation = placement.orientation
 
-            // The drum. Caps are left off because the flanges cover them.
-            curler.addChild(.shaped(
-                CylinderMesh.generate(
-                    length: drumLength,
-                    radius: drumRadius,
-                    capped: false
-                ),
-                material: drum
-            ))
+            roller.addChild(.shaped(barrel, material: drum))
 
-            // Flanged ends, slightly proud of the drum.
             for end in [Float(-1), 1] {
-                curler.addChild(.shaped(
-                    CylinderMesh.generate(
-                        length: drumLength * 0.13,
-                        radius: drumRadius * 1.12,
-                        segments: 20
-                    ),
-                    material: flange,
-                    at: [drumLength * 0.46 * end, 0, 0]
+                let offset = (length / 2 + rimLength / 2) * end
+                roller.addChild(.shaped(rim, material: flange, at: [offset, 0, 0]))
+                // Ivory end face, set slightly proud of the pink rim.
+                roller.addChild(.shaped(
+                    cap,
+                    material: face,
+                    at: [offset + rimLength * 0.5 * end, 0, 0]
                 ))
             }
 
-            // Hair wound over the middle, sitting just above the plastic.
-            curler.addChild(.shaped(
-                CylinderMesh.generate(
-                    length: drumLength * 0.52,
-                    radius: drumRadius * 1.06,
-                    segments: 20,
-                    capped: false
-                ),
-                material: wound
-            ))
-
-            // The retaining wire, across the drum and over the top.
-            curler.addChild(.shaped(
-                CylinderMesh.generate(
-                    length: drumLength * 1.08,
-                    radius: 0.0012,
-                    segments: 8
-                ),
-                material: wire,
-                at: [0, drumRadius * 1.18, 0]
-            ))
-
-            root.addChild(curler)
+            roller.addChild(.shaped(clip, material: wire, at: [0, radius * 1.05, 0]))
+            root.addChild(roller)
         }
         return root
     }
