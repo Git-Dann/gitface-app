@@ -19,3 +19,9 @@ xcuserdata/
 
 # macOS
 .DS_Store
+
+# Python
+# tools/ holds the build-time converters and the offline lens preview; importing
+# one from another leaves bytecode behind.
+__pycache__/
+*.pyc
