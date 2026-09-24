@@ -37,7 +37,7 @@ struct FaceUniforms {
     float  browGrey;
     float  browRadius;
     float  jawShade;
-    float  padding;
+    float  propMask;
 };
 
 /// Matching `WarpKind`.
@@ -312,9 +312,32 @@ inline half3 greyBrows(half3 rgb, float2 uv, constant FaceUniforms &u) {
 ///
 /// `target` is always written, including when nothing is applied. Skipping the
 /// write leaves the drawable undefined and the screen goes black.
+/// 1 where rendered geometry sits, 0 over the camera feed.
+///
+/// The depth texture's format and convention are undocumented, and this project
+/// has been burned by exactly that kind of assumption, so nothing is assumed:
+/// a corner pixel is camera background whichever way round depth runs, and
+/// every other pixel is compared against it. If the passthrough turns out not
+/// to write depth at all this reads zero everywhere and the warp is unchanged,
+/// which is what shipped before.
+inline float propDepthMask(depth2d<float, access::read> depthTexture,
+                           uint2 gid, uint width, uint height) {
+    const uint dw = depthTexture.get_width();
+    const uint dh = depthTexture.get_height();
+    if (dw == 0 || dh == 0) { return 0.0f; }
+
+    uint2 coord = uint2(float2(gid) * float2(dw, dh) / float2(width, height));
+    coord = min(coord, uint2(dw - 1, dh - 1));
+
+    float here = depthTexture.read(coord);
+    float background = depthTexture.read(uint2(2, 2));
+    return smoothstep(0.0015f, 0.02f, fabs(here - background));
+}
+
 kernel void composite(texture2d<half, access::sample> source   [[texture(0)]],
                       texture2d<half, access::write>  target   [[texture(1)]],
                       texture2d<half, access::write>  work     [[texture(2)]],
+                      depth2d<float, access::read>    depthMap [[texture(3)]],
                       constant FaceUniforms &uniforms          [[buffer(0)]],
                       constant WarpRegion *regions             [[buffer(1)]],
                       constant WrinkleLine *wrinkles           [[buffer(2)]],
@@ -340,6 +363,15 @@ kernel void composite(texture2d<half, access::sample> source   [[texture(0)]],
         warped = applyRegion(warped, regions[i], uniforms.aspect);
     }
     float hull = faceHull(uv, uniforms);
+
+    // Props are composited before this pass, so the warp bends the glasses and
+    // rollers along with the face. Holding it off them keeps the frames
+    // straight, which is what the reference shows.
+    if (uniforms.propMask > 0.0f) {
+        float prop = propDepthMask(depthMap, gid, width, height);
+        hull *= (1.0f - prop * uniforms.propMask);
+    }
+
     uv = mix(uv, warped, hull);
 
     half4 color = source.sample(frameSampler, uv);

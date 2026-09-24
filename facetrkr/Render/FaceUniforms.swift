@@ -189,6 +189,13 @@ struct LensTuning {
     var desaturate: Float = 1
     var blotch: Float = 1
     var browGrey: Float = 1
+    /// Not a multiplier: how strongly to hold the warp off the rendered props.
+    ///
+    /// Defaults to off because it rests on the depth texture behaving as
+    /// expected, and that is undocumented. On device, raising it should
+    /// straighten the glasses; if it does nothing, or bends them worse, the
+    /// depth assumption is wrong and this stays at zero.
+    var propMask: Float = 0
 
     static let neutral = LensTuning()
 }
@@ -247,7 +254,12 @@ struct FaceUniforms {
     var browGrey: Float = 0
     var browRadius: Float = 0
     var jawShade: Float = 0
-    var padding: Float = 0
+    /// How strongly the warp is held off the rendered props.
+    ///
+    /// The kernel warps the composited frame, so the glasses and rollers bend
+    /// with the face; the reference's frames are straight. Takes the padding
+    /// slot, so the 80-byte layout is unchanged.
+    var propMask: Float = 0
 }
 
 extension FaceUniforms {
@@ -271,4 +283,5 @@ struct FaceFrame {
     var browLeft = SIMD2<Float>(0.42, 0.38)
     var browRight = SIMD2<Float>(0.58, 0.38)
     var browRadius: Float = 0
+    var propMask: Float = 0
 }

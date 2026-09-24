@@ -414,7 +414,8 @@ final class FaceSessionCoordinator: NSObject, ARSessionDelegate, FaceSessionCont
             hullRadius: span * 2.0,
             browLeft: project(leftEye + SIMD3(0, 0.42, 0.02) * eyeSpan),
             browRight: project(rightEye + SIMD3(0, 0.42, 0.02) * eyeSpan),
-            browRadius: span * 0.52
+            browRadius: span * 0.52,
+            propMask: tuning.propMask
         )
 
         frameSource.withLock { $0?.setWarp(lens) }

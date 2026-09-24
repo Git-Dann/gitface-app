@@ -111,6 +111,7 @@ final class PostProcessFrameSource: @unchecked Sendable {
             $0.uniforms.blotch = frame.skin.blotch
             $0.uniforms.browGrey = frame.skin.browGrey
             $0.uniforms.jawShade = frame.skin.jawShade
+            $0.uniforms.propMask = frame.propMask
         }
     }
 
@@ -166,6 +167,7 @@ final class PostProcessFrameSource: @unchecked Sendable {
         encoder.setTexture(context.sourceColorTexture, index: 0)
         encoder.setTexture(targetTexture, index: 1)
         encoder.setTexture(work, index: 2)
+        encoder.setTexture(context.sourceDepthTexture, index: 3)
         encoder.setBytes(&uniforms, length: MemoryLayout<FaceUniforms>.stride, index: 0)
         encoder.setBytes(
             &regions,

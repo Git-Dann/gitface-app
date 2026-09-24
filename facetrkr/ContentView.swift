@@ -147,6 +147,9 @@ struct ContentView: View {
             tuningSlider("Sallow", value: $state.tuning.desaturate, range: 0...2.5)
             tuningSlider("Blotch", value: $state.tuning.blotch, range: 0...2.5)
             tuningSlider("Brows", value: $state.tuning.browGrey, range: 0...2)
+            // Not a multiplier. Raising it should straighten the glasses; if it
+            // does nothing the depth texture is not what the kernel assumes.
+            tuningSlider("Props", value: $state.tuning.propMask, range: 0...1)
 
             Button("Reset") { state.tuning = .neutral }
                 .font(.caption.weight(.semibold))
