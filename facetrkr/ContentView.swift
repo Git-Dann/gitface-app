@@ -28,10 +28,8 @@ struct ContentView: View {
             // masks build with flat materials, so the current one is rebuilt
             // once rather than left looking untextured.
             //
-            // WigMesh is deliberately not warmed: no lens uses it while the
-            // supplied wig's proportions do not match the reference, and
-            // parsing 3.6 MB at launch for nothing is not free.
             await ProceduralTexture.warm()
+            await WigMesh.warm()
             state.reapplyMask()
         }
         .alert(

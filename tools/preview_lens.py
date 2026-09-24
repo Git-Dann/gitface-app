@@ -37,14 +37,9 @@ MAGNIFY, WIDEN, SQUASH, SWIRL, PULL = 1, 2, 3, 4, 5
 # WarpStyle.grandma; change both together or this stops predicting anything.
 # "outward" as a direction means away from the face centre, resolved per frame.
 GRANDMA_REGIONS = [
-    ("faceCentre", WIDEN, 2.00, 0.95, (0, 1)),
-    ("mouth", WIDEN, 1.05, 0.65, (0, 1)),
-    ("leftJowl", PULL, 0.95, 0.38, "outward"),
-    ("rightJowl", PULL, 0.95, 0.38, "outward"),
-    ("leftEye", SQUASH, 0.52, 0.85, (0, 1)),
-    ("rightEye", SQUASH, 0.52, 0.85, (0, 1)),
-    ("brow", PULL, 0.90, 0.28, (0, 1)),
-    ("chin", SQUASH, 0.78, 0.50, (0, 1)),
+    ("crown", WIDEN, 1.50, -0.28, (0, 1)),
+    ("lowerFace", WIDEN, 1.60, 0.34, (0, 1)),
+    ("mouth", WIDEN, 0.80, 0.22, (0, 1)),
 ]
 
 SKIN = dict(creases=0.16, ridge=0.14, desaturate=0.05, sallow=0.05,
@@ -90,6 +85,10 @@ def anchors(left_eye, right_eye):
         "noseTip": offset(0, 0.45),
         "brow": offset(0, -0.52),
         "faceCentre": offset(0, 0.40),
+        # High on the skull and low on the jaw: a pinch at one and a bulge at
+        # the other is what turns a head pear-shaped.
+        "crown": offset(0, -1.30),
+        "lowerFace": offset(0, 1.00),
         "browLeft": left + np.array([0, -0.42]) * span,
         "browRight": right + np.array([0, -0.42]) * span,
     }, mid, span

@@ -29,6 +29,11 @@ enum WarpAnchor {
     case leftJowl, rightJowl
     case mouth
     case chin
+    /// High on the skull and low on the jaw. A pinch at one and a bulge at the
+    /// other is what makes a head pear-shaped, which is the shape the reference
+    /// lens actually produces.
+    case crown
+    case lowerFace
     case noseTip
     case brow
     case faceCentre
@@ -139,44 +144,31 @@ struct WarpStyle: Identifiable {
         specs: [WarpSpec(anchor: .faceCentre, kind: .swirl, radius: 1.8, weight: 2.0, jawDriven: true)]
     )
 
-    /// The reference lens, measured off the photograph rather than guessed.
+    /// The reference lens.
     ///
-    /// The cheeks used to be `magnify`, which was simply the wrong operator.
-    /// `magnify` pulls samples toward a point, and with a quadratic falloff the
-    /// effect is near zero out at the silhouette, so it enlarged the middle of
-    /// each cheek and dragged the face outline *inward*. Rendering it offline
-    /// against a real face made that obvious in one pass; the reference is a
-    /// face ballooned outward, which is what a `widen` across the whole lower
-    /// face does.
+    /// Described by Dan off the photograph, and it is three things rather than
+    /// the pile of regions this used to be: the top of the head is pinched, the
+    /// bottom half is bloated, and the mouth is slightly widened. Together they
+    /// make the head pear-shaped, which is what leaves room for the rollers.
     ///
-    /// Deliberately a caricature rather than clinical ageing: real ageing
-    /// hollows the midface, but the reference lens puffs it out.
+    /// Everything before this was too strong and the wrong shape. The cheeks
+    /// were `magnify`, which drags the outline inward rather than out; then a
+    /// single `widen` across the whole face, which bloats the top as much as
+    /// the bottom and so cannot make a pear. A negative `widen` high on the
+    /// skull is the pinch, a positive one low is the bulge.
     static let grandma = WarpStyle(
         id: "grandma", name: "Grandma", symbol: "figure.dress.line.vertical.figure",
         specs: [
-            // The whole lower face, wider and a little shorter. This one region
-            // carries most of the shape.
-            WarpSpec(anchor: .faceCentre, kind: .widen, radius: 2.00, weight: 0.95),
+            // Pinch. A negative weight samples wider than it draws, so the
+            // skull reads narrower.
+            WarpSpec(anchor: .crown, kind: .widen, radius: 1.50, weight: -0.28),
 
-            // Wide and flattened, winding up as the mouth opens.
-            WarpSpec(anchor: .mouth, kind: .widen, radius: 1.05, weight: 0.65,
-                     jawDriven: true),
+            // Bloat, over the jaw and cheeks.
+            WarpSpec(anchor: .lowerFace, kind: .widen, radius: 1.60, weight: 0.34),
 
-            // The sag, dragged sideways rather than down: at this size a jowl
-            // reads as width at the jaw, not as a droop.
-            WarpSpec(anchor: .leftJowl, kind: .pull, radius: 0.95, weight: 0.38,
-                     outward: true),
-            WarpSpec(anchor: .rightJowl, kind: .pull, radius: 0.95, weight: 0.38,
-                     outward: true),
-
-            // Narrowed eyes under a lowered brow.
-            WarpSpec(anchor: .leftEye, kind: .squash, radius: 0.52, weight: 0.85),
-            WarpSpec(anchor: .rightEye, kind: .squash, radius: 0.52, weight: 0.85),
-            WarpSpec(anchor: .brow, kind: .pull, radius: 0.90, weight: 0.28,
-                     direction: SIMD2(0, 1)),
-
-            // A shortened chin.
-            WarpSpec(anchor: .chin, kind: .squash, radius: 0.78, weight: 0.50)
+            // Slightly extended, and winding up as the mouth opens.
+            WarpSpec(anchor: .mouth, kind: .widen, radius: 0.80, weight: 0.22,
+                     jawDriven: true)
         ],
         skin: .aged
     )

@@ -331,6 +331,8 @@ final class FaceSessionCoordinator: NSObject, ARSessionDelegate, FaceSessionCont
         let chinScreen = project(offset(0, -1.95, 0.20))
         let noseScreen = project(offset(0, -0.45, 0.62))
         let browScreen = project(offset(0, 0.52, 0.30))
+        let crownScreen = project(offset(0, 1.30, -0.10))
+        let lowerFaceScreen = project(offset(0, -1.00, 0.30))
         let centreScreen = project(offset(0, -0.40, 0.10))
 
         func point(_ anchor: WarpAnchor) -> SIMD2<Float> {
@@ -345,6 +347,8 @@ final class FaceSessionCoordinator: NSObject, ARSessionDelegate, FaceSessionCont
             case .chin:       chinScreen
             case .noseTip:    noseScreen
             case .brow:       browScreen
+            case .crown:      crownScreen
+            case .lowerFace:  lowerFaceScreen
             case .faceCentre: centreScreen
             }
         }

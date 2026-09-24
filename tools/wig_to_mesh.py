@@ -43,6 +43,12 @@ ROLLER_MESHES = {
     "pink grille struts",
     "wound hair strands 1",
     "wound hair strands 2",
+    # Sleeves modelled around the file's 0.081 m rollers. The app's rollers are
+    # 0.038 m, measured off the reference photograph, so these hang off the ends
+    # of them. What is left is the loose hair, which is the part worth keeping.
+    "continuous crown to roller hair 0",
+    "continuous crown to roller hair 1",
+    "continuous crown to roller hair 2",
 }
 
 # Small enough to keep in full, and between them they carry the silhouette.
@@ -60,11 +66,11 @@ TRIANGLE_BUDGET = 95_000
 # Where the wig should sit, in the face-anchor metres `FaceLandmark` uses.
 # Width rather than height sets the scale because height is inflated by a few
 # long trailing strands.
-TARGET_WIDTH = 0.205
+TARGET_WIDTH = 0.190
 # Pulled back from a straight bounding-box match: aligning centres put the
 # fringe at z = 0.075, which is nose-tip depth and a good 3 cm proud of the
 # forehead. This lands its front edge around the brow plane instead.
-TARGET_CENTRE = np.array([0.0, 0.062, -0.027], np.float32)
+TARGET_CENTRE = np.array([0.0, 0.088, -0.030], np.float32)
 
 # The nine roller assemblies are dropped from the mesh, but their poses are
 # worth keeping: the hair is modelled wound around them, so putting rollers

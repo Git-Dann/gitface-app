@@ -46,16 +46,34 @@ enum ProceduralMasks {
     /// where an eye span is the 0.066 m between `FaceLandmark.eye(.left)` and
     /// `.eye(.right)`, rather than guessed.
     ///
-    /// The supplied wig is not used. Its rollers are 0.081 m long against the
-    /// 0.038 m the photograph shows, and its hair is modelled wound around
-    /// them, so correct proportions leave every strand in a sleeve twice the
-    /// length of the roller inside it. Rendering both settled it: the
-    /// photograph is the target, so the proportions win. `WigMesh` and the
-    /// converter stay in the repository for a wig whose proportions suit.
+    /// The supplied wig contributes its loose hair only. Its sleeves are
+    /// modelled around 0.081 m rollers against the 0.038 m the photograph
+    /// shows, so at the right size they hang off both ends; the converter drops
+    /// them. What is left — the cap, the fringe and the side curtains — sits
+    /// either side of the crown, which is exactly where the rollers go. Without
+    /// it the lens reads as rollers stuck on your own hair rather than grey
+    /// hair in rollers.
     static func grandma() -> Entity {
         let root = Entity()
+        root.addChild(wig())
         root.addChild(curlerCrown())
         root.addChild(readingGlasses())
+        return root
+    }
+
+    /// The wig's loose hair, one entity per material group.
+    private static func wig() -> Entity {
+        let root = Entity()
+        for group in WigMesh.groups() {
+            var material = PhysicallyBasedMaterial()
+            material.baseColor = .init(tint: group.baseColour, texture: nil)
+            material.roughness = .init(floatLiteral: group.roughness)
+            material.metallic = .init(floatLiteral: group.metallic)
+            // Hair catches a band of light along the strand rather than a round
+            // highlight. Without this the strands read as grey plastic tubes.
+            material.anisotropyLevel = .init(floatLiteral: 0.8)
+            root.addChild(.shaped(group.mesh, material: material))
+        }
         return root
     }
 
