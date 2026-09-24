@@ -13,9 +13,18 @@ struct Mask: Identifiable {
     let symbol: String
     /// Builds a fresh entity tree. Called on every selection, so it must not
     /// share mutable state between calls.
-    let build: () -> Entity
+    ///
+    /// Main-actor isolated because RealityKit entity construction is, and
+    /// saying so here is what lets the catalogue below be a plain `static let`.
+    let build: @MainActor () -> Entity
 }
 
+/// Main-actor isolated: every mask builds RealityKit entities, and every
+/// caller (the coordinator's anchor setup and mask switching, the SwiftUI
+/// carousel) is already on the main actor. Under Swift 6 the alternative the
+/// compiler offers is `nonisolated(unsafe)`, which would assert an invariant
+/// this code does not have.
+@MainActor
 enum MaskLibrary {
 
     static let all: [Mask] = [
@@ -89,6 +98,7 @@ enum FaceLandmark {
 
 // MARK: - Building blocks
 
+@MainActor
 extension Entity {
 
     /// Convenience for a coloured primitive at a position.

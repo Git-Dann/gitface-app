@@ -8,6 +8,7 @@ import UIKit
 /// need no rigged, morph-target-bearing USDZ, which is where this kind of
 /// project usually stalls. Real models can replace these one at a time without
 /// touching anything else.
+@MainActor
 enum ProceduralMasks {
 
     // MARK: - Palette
