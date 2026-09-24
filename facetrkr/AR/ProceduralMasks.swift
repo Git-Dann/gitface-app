@@ -42,27 +42,24 @@ enum ProceduralMasks {
     /// crown right and the eye reads "hair" without any strands being modelled.
     static func grandma() -> Entity {
         let root = Entity()
-        root.addChild(hairCap())
+        root.addChild(templeWisps())
         root.addChild(curlerCrown())
         root.addChild(readingGlasses())
         return root
     }
 
-    /// A skullcap sitting behind the curlers. Not meant to be seen directly —
-    /// it stops the scalp showing through the gaps in the crown.
-    private static func hairCap() -> Entity {
+    /// Wisps of grey at the temples.
+    ///
+    /// There was a skullcap here, meant to stop the scalp showing through the
+    /// gaps in the crown. It was a sphere larger than a head, centred inside
+    /// the skull and protruding past the nose, so on device it simply covered
+    /// the face. It is gone rather than resized: the curlers already carry the
+    /// silhouette, which was the whole reason for building them.
+    private static func templeWisps() -> Entity {
         let root = Entity()
-        root.addChild(.part(
-            .generateSphere(radius: 0.093),
-            color: Shade.hair,
-            at: FaceLandmark.crown + [0, -0.038, -0.004],
-            scale: [1.02, 0.86, 1.04],
-            roughness: 0.85
-        ))
 
-        // A few wisps at the temples. Kept sparse and opaque: RealityKit's
-        // transparency is unreliable on 26, so these are solid slivers rather
-        // than alpha-blended hair cards.
+        // Sparse and opaque: RealityKit's transparency is unreliable on 26, so
+        // these are solid slivers rather than alpha-blended hair cards.
         for side in FaceLandmark.Side.allCases {
             for (index, tilt) in [Float(0.55), 0.20, -0.15].enumerated() {
                 root.addChild(.part(
@@ -140,7 +137,7 @@ enum ProceduralMasks {
 
         for side in FaceLandmark.Side.allCases {
             let centre = FaceLandmark.mirrored(
-                FaceLandmark.eye(.right) + [0.006, -0.004, 0.020], side
+                FaceLandmark.eye(.right) + [0.006, -0.004, 0.007], side
             )
 
             // Four bars per lens rather than a solid plate, so the frame reads
@@ -166,12 +163,14 @@ enum ProceduralMasks {
                 ))
             }
 
-            // Arm back towards the ear. The occlusion mesh is what makes this
-            // disappear correctly when the head turns.
+            // Arm back towards the ear: 7 cm along Z, not along X. Built as a
+            // width earlier, it stuck straight out of the temple like an
+            // antenna. The occlusion mesh is what makes this disappear
+            // correctly when the head turns.
             root.addChild(.part(
-                .generateBox(width: 0.070, height: 0.005, depth: 0.005, cornerRadius: 0.002),
+                .generateBox(width: 0.005, height: 0.005, depth: 0.068, cornerRadius: 0.002),
                 color: Shade.frame,
-                at: centre + [0.042 * side.sign, 0.012, -0.034],
+                at: centre + [0.028 * side.sign, 0.012, -0.034],
                 roughness: 0.3
             ))
         }
@@ -179,7 +178,7 @@ enum ProceduralMasks {
         root.addChild(.part(
             .generateBox(width: 0.020, height: 0.005, depth: 0.006, cornerRadius: 0.002),
             color: Shade.frame,
-            at: FaceLandmark.noseBase + [0, 0.008, 0.020],
+            at: FaceLandmark.noseBase + [0, 0.008, 0.007],
             roughness: 0.3
         ))
         return root
