@@ -1,5 +1,5 @@
-import AVFoundation
-import CoreMedia
+@preconcurrency import AVFoundation
+@preconcurrency import CoreMedia
 import os
 
 /// Writes composited frames and microphone audio to a movie file.

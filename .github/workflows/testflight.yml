@@ -3,14 +3,23 @@ name: TestFlight
 # Signs and uploads a build to App Store Connect, from which TestFlight
 # distribution is managed.
 #
-# Only a tag push or a manual dispatch can start this, and both need write
-# access to the repository. That matters because this repo is public: a
-# pull_request trigger would be wrong here, though GitHub does withhold secrets
-# from fork PRs. Consider putting this job behind a protected Environment as
-# well, so uploads under the company's Apple account need an approval first.
+# Every push to main ships a build, so getting a version to testers costs
+# nothing beyond merging. Tags still work for marking a release, and manual
+# dispatch is there for re-running a failed upload.
+#
+# All three triggers need write access to the repository. That matters because
+# this repo is public: a pull_request trigger would be wrong here, though GitHub
+# does withhold secrets from fork PRs. Consider putting this job behind a
+# protected Environment as well, so uploads under the company's Apple account
+# need an approval first.
+#
+# Uploads are skipped when the App Store Connect secrets are absent, so the
+# workflow sits harmlessly until the one-time account setup is done rather than
+# failing red on every push.
 
 on:
   push:
+    branches: [main]
     tags: ['v*']
   workflow_dispatch:
 
@@ -32,9 +41,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Fails early and by name rather than 20 minutes later inside xcodebuild,
-      # where a missing credential surfaces as an opaque signing error.
+      # Decides whether there is anything to do, rather than failing. Since this
+      # now runs on every push to main, a repo without the Apple credentials
+      # configured yet would otherwise go red on each one, training everyone to
+      # ignore it. A manual dispatch still fails loudly, because asking for an
+      # upload and silently getting none is worse than an error.
       - name: Check credentials are present
+        id: creds
         env:
           PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
         run: |
@@ -43,13 +56,31 @@ jobs:
           [ -n "$ISSUER_ID" ]   || missing="$missing APP_STORE_CONNECT_ISSUER_ID"
           [ -n "$PRIVATE_KEY" ] || missing="$missing APP_STORE_CONNECT_PRIVATE_KEY"
           [ -n "$TEAM_ID" ]     || missing="$missing APPLE_TEAM_ID"
-          if [ -n "$missing" ]; then
-            echo "Missing repository secrets:$missing" >&2
-            echo "See the TestFlight section of README.md for how to create them." >&2
-            exit 1
+
+          if [ -z "$missing" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
 
+          echo "ready=false" >> "$GITHUB_OUTPUT"
+          {
+            echo "## TestFlight upload skipped"
+            echo
+            echo "These repository secrets are not set:"
+            echo '```'
+            for name in $missing; do echo "$name"; done
+            echo '```'
+            echo "The TestFlight section of README.md covers creating them."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "Upload was requested manually but credentials are missing:$missing" >&2
+            exit 1
+          fi
+          echo "No App Store Connect credentials configured; skipping upload."
+
       - name: Install App Store Connect API key
+        if: steps.creds.outputs.ready == 'true'
         env:
           PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
         run: |
@@ -62,18 +93,27 @@ jobs:
       # comes from the run number rather than the project file. The marketing
       # version comes from the tag when there is one.
       - name: Work out version numbers
+        if: steps.creds.outputs.ready == 'true'
         id: version
         run: |
+          # A tag names the version. A push to main has no tag to read, so it
+          # reuses whatever the project already declares.
           if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
             marketing="${GITHUB_REF_NAME#v}"
           else
-            marketing="0.1"
+            marketing=$(
+              /usr/libexec/PlistBuddy -c "Print :objects:FT000000000000000000000F:buildSettings:MARKETING_VERSION" \
+                facetrkr.xcodeproj/project.pbxproj 2>/dev/null \
+              || grep -m1 -o 'MARKETING_VERSION = [^;]*' facetrkr.xcodeproj/project.pbxproj | cut -d' ' -f3
+            )
+            marketing="${marketing:-0.1}"
           fi
           echo "marketing=$marketing" >> "$GITHUB_OUTPUT"
           echo "build=${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
           echo "Uploading $marketing (${GITHUB_RUN_NUMBER})"
 
       - name: Archive
+        if: steps.creds.outputs.ready == 'true'
         run: |
           set -o pipefail
           xcodebuild archive \
@@ -92,6 +132,7 @@ jobs:
             2>&1 | tee archive.log
 
       - name: Export and upload to App Store Connect
+        if: steps.creds.outputs.ready == 'true'
         run: |
           set -o pipefail
           cat > "$RUNNER_TEMP/ExportOptions.plist" <<PLIST
@@ -120,7 +161,7 @@ jobs:
             2>&1 | tee export.log
 
       - name: Summarise failures
-        if: failure()
+        if: failure() && steps.creds.outputs.ready == 'true'
         run: |
           {
             echo '## Upload failed'
@@ -134,11 +175,11 @@ jobs:
       # The key is a company credential. Do not leave it on the runner, even
       # though the runner is ephemeral.
       - name: Remove the API key
-        if: always()
+        if: always() && steps.creds.outputs.ready == 'true'
         run: rm -rf ~/private_keys
 
       - name: Upload logs
-        if: always()
+        if: always() && steps.creds.outputs.ready == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: testflight-logs

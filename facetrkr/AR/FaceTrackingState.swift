@@ -70,7 +70,6 @@ final class FaceTrackingState: ObservableObject {
     weak var controller: FaceSessionControlling?
 
     let recorder = VideoRecorder()
-    let thermal = ThermalGovernor()
 
     private var ticker: Task<Void, Never>?
     private var thermalObservation: Task<Void, Never>?
@@ -91,18 +90,18 @@ final class FaceTrackingState: ObservableObject {
     /// rather than stuttering at a higher one.
     func startThermalTracking() {
         guard thermalObservation == nil else { return }
-        controller?.setTargetFrameRate(thermal.targetFrameRate)
-        isThermallyThrottled = thermal.isThrottled
+        controller?.setTargetFrameRate(ThermalGovernor.targetFrameRate)
+        isThermallyThrottled = ThermalGovernor.isThrottled
         thermalObservation = Task { [weak self] in
             var last: ProcessInfo.ThermalState?
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
                 guard let self else { return }
-                let current = self.thermal.state
+                let current = ThermalGovernor.state
                 guard current != last else { continue }
                 last = current
-                self.isThermallyThrottled = self.thermal.isThrottled
-                self.controller?.setTargetFrameRate(self.thermal.targetFrameRate)
+                self.isThermallyThrottled = ThermalGovernor.isThrottled
+                self.controller?.setTargetFrameRate(ThermalGovernor.targetFrameRate)
             }
         }
     }

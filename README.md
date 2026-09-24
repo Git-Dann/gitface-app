@@ -166,8 +166,12 @@ Known things to watch, all flagged in the plan:
 ## TestFlight
 
 Builds are signed and uploaded by the `TestFlight` workflow, so no Mac is
-involved. Tag a commit `v0.2` and push it, or run the workflow by hand from the
-Actions tab.
+involved and no step is manual: **every push to `main` ships a build**. Tagging
+`v0.2` sets the marketing version, and manual dispatch from the Actions tab
+re-runs a failed upload.
+
+Until the secrets below exist the workflow skips the upload and says so on the
+run summary, rather than failing red on every push.
 
 ### One-off setup
 

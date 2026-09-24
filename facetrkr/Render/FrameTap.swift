@@ -13,7 +13,13 @@ final class FrameTap {
     /// `CVMetalTextureCacheCreateTextureFromImage` bumps the buffer's use count,
     /// and dropping the reference early lets the pool recycle a buffer that is
     /// still being written.
-    struct Slot {
+    ///
+    /// `@unchecked Sendable` because handing this to a command-buffer
+    /// completion handler is the type's entire purpose: it is created on the
+    /// render thread and consumed once the GPU finishes. The three members are
+    /// thread-safe references; what is not checkable is that only one slot
+    /// refers to a given buffer at a time, and the pool is what guarantees it.
+    struct Slot: @unchecked Sendable {
         let pixelBuffer: CVPixelBuffer
         let metalTexture: CVMetalTexture
         let texture: MTLTexture

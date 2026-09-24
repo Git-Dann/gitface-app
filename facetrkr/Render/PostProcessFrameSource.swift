@@ -1,4 +1,4 @@
-import CoreMedia
+@preconcurrency import CoreMedia
 import Metal
 import QuartzCore
 import RealityKit
@@ -43,6 +43,7 @@ final class PostProcessFrameSource {
 
     // MARK: Setup
 
+    @MainActor
     init?(arView: ARView, recorder: VideoRecorder) {
         // `ARView` exposes no `device`. On iOS there is a single GPU, so the
         // system default is the one RealityKit renders with; the post-process
