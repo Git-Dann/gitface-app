@@ -78,6 +78,10 @@ final class FaceSessionCoordinator: NSObject, ARSessionDelegate, FaceSessionCont
         let source = PostProcessFrameSource(arView: arView, recorder: recorder)
         frameSource.withLock { $0 = source }
 
+        // After the frame source exists, because the warp and the spike toggle
+        // both write through it.
+        state.pushCurrentSelection()
+
         run(on: arView.session)
         state.update(to: .searching)
     }
@@ -209,7 +213,10 @@ final class FaceSessionCoordinator: NSObject, ARSessionDelegate, FaceSessionCont
 
         faceAnchor = anchor
         maskRoot = root
-        root.addChild(state.selectedMask.build())
+        // The mask is not built here. `pushCurrentSelection` does it, so the
+        // starting mask and its warp go through exactly the same path as every
+        // later selection rather than one being applied and the other silently
+        // skipped.
     }
 
     /// The only public figure for face-tracking capture resolution is 720p-only

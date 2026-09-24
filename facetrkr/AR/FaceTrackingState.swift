@@ -77,9 +77,26 @@ final class FaceTrackingState: ObservableObject {
     /// Rebuilds the selected mask in place.
     ///
     /// Only needed when something the builders read has changed underneath
-    /// them — today that is the procedural texture cache finishing.
+    /// them — today that is the procedural texture and wig caches finishing.
     func reapplyMask() {
         controller?.applyMask(selectedMask)
+    }
+
+    /// Sends the whole current selection to a freshly attached controller.
+    ///
+    /// Every hook into the session here is a `didSet`, and `didSet` does not
+    /// fire on initialisation, so nothing had ever pushed the starting
+    /// selection. The default mask is the Grandma lens, so a fresh launch
+    /// built its props and then sat with no warp and no aged skin at all: the
+    /// coordinator's warp style stayed `.none` and every frame cleared itself.
+    /// The lens only came alive if you switched masks and came back, which is
+    /// why it looked untouched by two builds' worth of work on it.
+    func pushCurrentSelection() {
+        if let warp = selectedMask.warp { selectedWarp = warp }
+        controller?.applyMask(selectedMask)
+        controller?.setWarpStyle(selectedWarp)
+        controller?.setTuning(tuning)
+        controller?.setTintEnabled(isTintSpikeEnabled)
     }
 
     /// Live multipliers over the baked-in lens values, driven by the debug
