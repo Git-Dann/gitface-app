@@ -17,7 +17,15 @@ import os
 /// Threading: the callback runs on RealityKit's render thread, never main.
 /// Everything main touches goes through the lock; everything else in here is
 /// render-thread-only and marked as such.
-final class PostProcessFrameSource {
+/// `@unchecked Sendable` because the coordinator keeps this behind a lock and
+/// reaches it from two places: the main actor for setup, teardown and the UI
+/// toggles, and ARKit's delegate queue for per-frame landmark updates. Its own
+/// mutable state is split to match — `state` is itself a lock, and
+/// `workTexture`, `frameTap` and `lastCaptureTime` are touched only on
+/// RealityKit's render thread inside the post-process callback. A property
+/// added outside that split breaks the invariant, and the compiler cannot
+/// check it.
+final class PostProcessFrameSource: @unchecked Sendable {
 
     /// Encode size. Portrait, and independent of the drawable, which is an
     /// awkward shape and larger than is worth encoding.
