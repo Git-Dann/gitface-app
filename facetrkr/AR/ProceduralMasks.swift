@@ -27,6 +27,162 @@ enum ProceduralMasks {
         static let purple = UIColor(red: 0.40, green: 0.24, blue: 0.62, alpha: 1)
         static let crimson = UIColor(red: 0.78, green: 0.14, blue: 0.18, alpha: 1)
         static let charcoal = UIColor(red: 0.12, green: 0.12, blue: 0.14, alpha: 1)
+        static let hair = UIColor(red: 0.80, green: 0.80, blue: 0.82, alpha: 1)
+        static let roller = UIColor(red: 0.96, green: 0.96, blue: 0.97, alpha: 1)
+        static let rollerBand = UIColor(red: 0.91, green: 0.29, blue: 0.56, alpha: 1)
+        static let frame = UIColor(red: 0.09, green: 0.09, blue: 0.11, alpha: 1)
+    }
+
+    // MARK: - Grandma
+
+    /// The reference lens: curler crown, grey hair, heavy square frames.
+    ///
+    /// The curlers carry the silhouette, which is what makes this work without
+    /// a real hair asset. Snap's own lens leans on the same trick: get the
+    /// crown right and the eye reads "hair" without any strands being modelled.
+    static func grandma() -> Entity {
+        let root = Entity()
+        root.addChild(hairCap())
+        root.addChild(curlerCrown())
+        root.addChild(readingGlasses())
+        return root
+    }
+
+    /// A skullcap sitting behind the curlers. Not meant to be seen directly —
+    /// it stops the scalp showing through the gaps in the crown.
+    private static func hairCap() -> Entity {
+        let root = Entity()
+        root.addChild(.part(
+            .generateSphere(radius: 0.093),
+            color: Shade.hair,
+            at: FaceLandmark.crown + [0, -0.038, -0.004],
+            scale: [1.02, 0.86, 1.04],
+            roughness: 0.85
+        ))
+
+        // A few wisps at the temples. Kept sparse and opaque: RealityKit's
+        // transparency is unreliable on 26, so these are solid slivers rather
+        // than alpha-blended hair cards.
+        for side in FaceLandmark.Side.allCases {
+            for (index, tilt) in [Float(0.55), 0.20, -0.15].enumerated() {
+                root.addChild(.part(
+                    .generateBox(width: 0.010, height: 0.052, depth: 0.006, cornerRadius: 0.005),
+                    color: Shade.hair,
+                    at: FaceLandmark.temple(side) + [0.020 * side.sign,
+                                                     0.030 - Float(index) * 0.016,
+                                                     -0.016],
+                    rotation: simd_quatf(angle: tilt * side.sign, axis: [0, 0, 1]),
+                    roughness: 0.9
+                ))
+            }
+        }
+        return root
+    }
+
+    /// Curlers around the hairline.
+    ///
+    /// Placed around an arc rather than built as a ring, because RealityKit has
+    /// no torus primitive. Each is a cylinder lying on its side with a pink
+    /// band at each end, which is the whole read at this size.
+    private static func curlerCrown() -> Entity {
+        let root = Entity()
+        let count = 9
+        let arc: Float = .pi * 1.15
+        let radius: Float = 0.098
+
+        for index in 0..<count {
+            let t = Float(index) / Float(count - 1)
+            let angle = -arc / 2 + arc * t
+
+            let curler = Entity()
+            curler.position = FaceLandmark.crown + [
+                sin(angle) * radius,
+                cos(angle) * radius * 0.42 - 0.012,
+                -0.014
+            ]
+            // Each curler lies tangent to the arc, so the crown reads as a ring
+            // of rollers rather than a row of loose cylinders.
+            curler.orientation = simd_quatf(angle: angle, axis: [0, 0, 1])
+
+            curler.addChild(.part(
+                .generateCylinder(height: 0.042, radius: 0.019),
+                color: Shade.roller,
+                at: .zero,
+                rotation: simd_quatf(angle: .pi / 2, axis: [0, 0, 1]),
+                roughness: 0.55
+            ))
+            for end in [Float(-1), 1] {
+                curler.addChild(.part(
+                    .generateCylinder(height: 0.009, radius: 0.0205),
+                    color: Shade.rollerBand,
+                    at: [0.017 * end, 0, 0],
+                    rotation: simd_quatf(angle: .pi / 2, axis: [0, 0, 1]),
+                    roughness: 0.45
+                ))
+            }
+            // Hair wound over the roller.
+            curler.addChild(.part(
+                .generateCylinder(height: 0.020, radius: 0.0215),
+                color: Shade.hair,
+                at: .zero,
+                rotation: simd_quatf(angle: .pi / 2, axis: [0, 0, 1]),
+                roughness: 0.9
+            ))
+
+            root.addChild(curler)
+        }
+        return root
+    }
+
+    /// Heavy square frames. The reference pair are wide, thick and sit low.
+    private static func readingGlasses() -> Entity {
+        let root = Entity()
+
+        for side in FaceLandmark.Side.allCases {
+            let centre = FaceLandmark.mirrored(
+                FaceLandmark.eye(.right) + [0.006, -0.004, 0.020], side
+            )
+
+            // Four bars per lens rather than a solid plate, so the frame reads
+            // as a rim with the eye visible through it.
+            let width: Float = 0.052
+            let height: Float = 0.040
+            let bar: Float = 0.0055
+
+            for vertical in [Float(-1), 1] {
+                root.addChild(.part(
+                    .generateBox(width: width, height: bar, depth: 0.007, cornerRadius: 0.002),
+                    color: Shade.frame,
+                    at: centre + [0, height / 2 * vertical, 0],
+                    roughness: 0.3
+                ))
+            }
+            for horizontal in [Float(-1), 1] {
+                root.addChild(.part(
+                    .generateBox(width: bar, height: height, depth: 0.007, cornerRadius: 0.002),
+                    color: Shade.frame,
+                    at: centre + [width / 2 * horizontal, 0, 0],
+                    roughness: 0.3
+                ))
+            }
+
+            // Arm back towards the ear. The occlusion mesh is what makes this
+            // disappear correctly when the head turns.
+            root.addChild(.part(
+                .generateBox(width: 0.070, height: 0.005, depth: 0.005, cornerRadius: 0.002),
+                color: Shade.frame,
+                at: centre + [0.042 * side.sign, 0.012, -0.034],
+                roughness: 0.3
+            ))
+        }
+
+        root.addChild(.part(
+            .generateBox(width: 0.020, height: 0.005, depth: 0.006, cornerRadius: 0.002),
+            color: Shade.frame,
+            at: FaceLandmark.noseBase + [0, 0.008, 0.020],
+            roughness: 0.3
+        ))
+        return root
     }
 
     // MARK: - Animals

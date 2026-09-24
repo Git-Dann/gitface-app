@@ -2,11 +2,11 @@ import SwiftUI
 
 struct EffectPicker: View {
 
-    @Binding var selection: FaceEffect
+    @Binding var selection: WarpStyle
 
     var body: some View {
         HStack(spacing: 10) {
-            ForEach(FaceEffect.allCases) { effect in
+            ForEach(WarpStyle.all) { effect in
                 Button {
                     selection = effect
                 } label: {
@@ -16,12 +16,12 @@ struct EffectPicker: View {
                         .frame(width: 40, height: 40)
                         .background(
                             Circle().fill(
-                                effect == selection
+                                effect.id == selection.id
                                     ? AnyShapeStyle(.white.opacity(0.9))
                                     : AnyShapeStyle(.ultraThinMaterial)
                             )
                         )
-                        .foregroundStyle(effect == selection ? .black : .white)
+                        .foregroundStyle(effect.id == selection.id ? .black : .white)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(effect.name)

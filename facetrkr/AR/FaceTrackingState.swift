@@ -11,7 +11,7 @@ protocol FaceSessionControlling: AnyObject {
     func setRecordingActive(_ active: Bool)
     func setTintEnabled(_ enabled: Bool)
     func setTargetFrameRate(_ fps: Double)
-    func setEffect(_ effect: FaceEffect)
+    func setWarpStyle(_ style: WarpStyle)
     func setViewportSize(_ size: CGSize)
     func applyMask(_ mask: Mask)
 }
@@ -54,12 +54,18 @@ final class FaceTrackingState: ObservableObject {
     @Published private(set) var isThermallyThrottled = false
     @Published var errorMessage: String?
 
+    /// Selecting a mask that carries a warp applies both. That pairing is what
+    /// turns a pile of props into a lens: the reference look is the warp and
+    /// the props together, and neither reads without the other.
     @Published var selectedMask: Mask = MaskLibrary.default {
-        didSet { controller?.applyMask(selectedMask) }
+        didSet {
+            controller?.applyMask(selectedMask)
+            if let warp = selectedMask.warp { selectedWarp = warp }
+        }
     }
 
-    @Published var selectedEffect: FaceEffect = .none {
-        didSet { controller?.setEffect(selectedEffect) }
+    @Published var selectedWarp: WarpStyle = .none {
+        didSet { controller?.setWarpStyle(selectedWarp) }
     }
 
     /// M1 spike toggle. Remove once the passthrough question is settled.

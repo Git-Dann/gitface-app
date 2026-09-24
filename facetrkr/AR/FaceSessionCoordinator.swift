@@ -26,7 +26,7 @@ final class FaceSessionCoordinator: NSObject, ARSessionDelegate, FaceSessionCont
     /// lock is what makes the access safe, which is exactly what that
     /// initialiser is for.
     private let frameSource = OSAllocatedUnfairLock<PostProcessFrameSource?>(uncheckedState: nil)
-    private let effect = OSAllocatedUnfairLock(initialState: FaceEffect.none)
+    private let warpStyle = OSAllocatedUnfairLock(initialState: WarpStyle.none)
     private let viewport = OSAllocatedUnfairLock(initialState: CGSize.zero)
 
     /// Written from ARKit's delegate queue, so not plain stored properties.
@@ -167,11 +167,13 @@ final class FaceSessionCoordinator: NSObject, ARSessionDelegate, FaceSessionCont
     }
 
     @MainActor
-    func setEffect(_ effect: FaceEffect) {
-        self.effect.withLock { $0 = effect }
-        // Push immediately so switching to "off" takes effect even if tracking
-        // has dropped and no frame update is coming.
-        frameSource.withLock { $0?.setEffect(effect, strength: effect.maximumStrength * 0.45) }
+    func setWarpStyle(_ style: WarpStyle) {
+        warpStyle.withLock { $0 = style }
+        // Clear immediately so switching to "off" takes effect even if tracking
+        // has dropped and no frame update is coming to rebuild the regions.
+        if style.specs.isEmpty {
+            frameSource.withLock { $0?.clearWarp() }
+        }
     }
 
     @MainActor
@@ -216,18 +218,34 @@ final class FaceSessionCoordinator: NSObject, ARSessionDelegate, FaceSessionCont
 
     // MARK: - ARSessionDelegate
 
-    /// Projects face landmarks to screen space for the distortion shader.
+    /// Projects the warp anchors to screen space and rebuilds the regions.
     ///
     /// Uses `ARCamera.projectPoint` rather than `ARView.project` so this can
     /// stay on ARKit's delegate queue instead of hopping to the main actor 60
     /// times a second.
+    ///
+    /// Everything is derived from ARKit's real eye transforms rather than fixed
+    /// constants: cheeks and mouth are offsets from the eyes measured in eye
+    /// spans, and every radius scales with the projected eye separation. That
+    /// makes a warp land in the same place on any face at any distance, which
+    /// fixed screen-space numbers cannot do.
     nonisolated func session(_ session: ARSession, didUpdate frame: ARFrame) {
         guard let face = frame.anchors.lazy.compactMap({ $0 as? ARFaceAnchor }).first,
               face.isTracked
-        else { return }
+        else {
+            // Otherwise the last frame's distortion stays frozen on screen.
+            frameSource.withLock { $0?.clearWarp() }
+            return
+        }
 
         let size = viewport.withLock { $0 }
         guard size.width > 1, size.height > 1 else { return }
+
+        let style = warpStyle.withLock { $0 }
+        guard !style.specs.isEmpty else {
+            frameSource.withLock { $0?.clearWarp() }
+            return
+        }
 
         let camera = frame.camera
         func project(_ local: SIMD3<Float>) -> SIMD2<Float> {
@@ -240,35 +258,59 @@ final class FaceSessionCoordinator: NSObject, ARSessionDelegate, FaceSessionCont
             return SIMD2<Float>(Float(point.x / size.width), Float(point.y / size.height))
         }
 
-        let centre = project(.zero)
-        let crown = project(FaceLandmark.crown)
+        func position(_ transform: simd_float4x4) -> SIMD3<Float> {
+            SIMD3(transform.columns.3.x, transform.columns.3.y, transform.columns.3.z)
+        }
 
-        // Radius follows the head's apparent size, so effects scale with how
-        // close you are to the camera rather than being fixed in screen space.
-        let radius = min(0.45, max(0.08, abs(crown.y - centre.y) * 2.2))
+        let leftEye = position(face.leftEyeTransform)
+        let rightEye = position(face.rightEyeTransform)
+        let eyeMid = (leftEye + rightEye) / 2
+        let eyeSpan = max(0.001, simd_distance(leftEye, rightEye))
 
-        let leftEye = project(FaceLandmark.eye(.left))
-        let rightEye = project(FaceLandmark.eye(.right))
-        let mouth = project(FaceLandmark.mouth)
+        // Offsets are taken from each eye outward rather than from a signed X
+        // axis, so nothing here depends on which way the anchor's X points.
+        func cheek(of eye: SIMD3<Float>) -> SIMD3<Float> {
+            eye + (eye - eyeMid) * 0.22 + SIMD3(0, -0.58, 0.26) * eyeSpan
+        }
 
-        let currentEffect = effect.withLock { $0 }
+        let leftEyeScreen = project(leftEye)
+        let rightEyeScreen = project(rightEye)
+        let leftCheekScreen = project(cheek(of: leftEye))
+        let rightCheekScreen = project(cheek(of: rightEye))
+        let mouthScreen = project(eyeMid + SIMD3(0, -1.15, 0.38) * eyeSpan)
+        let centreScreen = project(eyeMid + SIMD3(0, -0.40, 0.10) * eyeSpan)
+
+        func point(_ anchor: WarpAnchor) -> SIMD2<Float> {
+            switch anchor {
+            case .leftEye:    leftEyeScreen
+            case .rightEye:   rightEyeScreen
+            case .leftCheek:  leftCheekScreen
+            case .rightCheek: rightCheekScreen
+            case .mouth:      mouthScreen
+            case .faceCentre: centreScreen
+            }
+        }
+
+        // The one measurement everything scales from.
+        let span = max(0.01, simd_distance(leftEyeScreen, rightEyeScreen))
         let jawOpen = face.blendShapes[.jawOpen]?.floatValue ?? 0
+
+        let regions = style.specs.prefix(FaceUniforms.maximumRegions).map { spec in
+            WarpRegion(
+                centre: point(spec.anchor),
+                radius: spec.radius * span,
+                kind: spec.kind.rawValue,
+                weight: spec.jawDriven ? spec.weight * (0.55 + 0.45 * jawOpen) : spec.weight
+            )
+        }
 
         // Everything is computed before the lock is taken: this runs 60 times a
         // second and the render thread contends for the same lock.
-        frameSource.withLock { source in
-            source?.updateLandmarks(
-                leftEye: leftEye,
-                rightEye: rightEye,
-                mouth: mouth,
-                centre: centre,
-                radius: radius
-            )
-            // Opening your mouth winds the effect up. This is the first thing
-            // in the app that reads blendshapes.
-            source?.setEffect(
-                currentEffect,
-                strength: currentEffect.maximumStrength * (0.45 + 0.55 * jawOpen)
+        frameSource.withLock {
+            $0?.setWarp(
+                regions: Array(regions),
+                hullCentre: centreScreen,
+                hullRadius: span * 1.6
             )
         }
     }

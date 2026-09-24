@@ -52,7 +52,7 @@ struct ContentView: View {
                         savedNotice(url: url)
                     }
 
-                    EffectPicker(selection: $state.selectedEffect)
+                    EffectPicker(selection: $state.selectedWarp)
 
                     MaskCarousel(
                         selection: $state.selectedMask,

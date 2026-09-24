@@ -1,29 +1,37 @@
 #include <metal_stdlib>
 using namespace metal;
 
-/// Mirrors `FaceUniforms` in FaceUniforms.swift. Field order and types must
-/// stay in step with the Swift side.
-struct FaceUniforms {
-    float2 leftEye;
-    float2 rightEye;
-    float2 mouth;
+/// Mirrors `WarpRegion` in FaceUniforms.swift.
+struct WarpRegion {
     float2 centre;
     float  radius;
-    int    effect;
-    float  strength;
-    float  tint;
-    float  aspect;
+    int    kind;
+    float  weight;
     float  padding;
 };
 
-/// Effect identifiers, matching `FaceEffect`'s raw values.
-constant int kEffectNone       = 0;
-constant int kEffectBulgeEyes  = 1;
-constant int kEffectStretchJaw = 2;
-constant int kEffectBigHead    = 3;
-constant int kEffectSwirl      = 4;
+/// Mirrors `FaceUniforms` in FaceUniforms.swift.
+struct FaceUniforms {
+    float2 hullCentre;
+    float  hullRadius;
+    int    regionCount;
+    float  aspect;
+    float  tint;
+    float  wrinkle;
+    float  padding;
+};
 
-/// Distance is measured in aspect-corrected space so the falloff region is a
+/// Matching `WarpKind`.
+constant int kWarpMagnify = 1;
+constant int kWarpWiden   = 2;
+constant int kWarpSquash  = 3;
+constant int kWarpSwirl   = 4;
+
+/// The face is roughly this much taller than it is wide. Used to make the
+/// hull an ellipse rather than a circle.
+constant float kFaceAspect = 1.35;
+
+/// Distances are measured in aspect-corrected space so a radius describes a
 /// circle on screen rather than an ellipse.
 inline float2 toLocal(float2 uv, float2 centre, float aspect) {
     return (uv - centre) * float2(aspect, 1.0f);
@@ -33,94 +41,87 @@ inline float2 fromLocal(float2 local, float2 centre, float aspect) {
     return centre + local / float2(aspect, 1.0f);
 }
 
-/// Smooth falloff to zero at the edge of the affected disc, so the effect
-/// blends into the untouched frame instead of showing a hard seam.
+/// Smooth falloff to zero at the edge of the affected disc, so a warp blends
+/// into the untouched frame rather than showing a seam.
 inline float falloff(float distance, float radius) {
-    if (distance >= radius) {
+    if (radius <= 0.0f || distance >= radius) {
         return 0.0f;
     }
     float t = 1.0f - distance / radius;
     return t * t;
 }
 
-/// Pulls samples towards the centre, which magnifies what is there.
-inline float2 magnify(float2 uv, float2 centre, float radius, float strength, float aspect) {
-    float2 local = toLocal(uv, centre, aspect);
-    float distance = length(local);
-    float amount = falloff(distance, radius);
-    if (amount <= 0.0f) {
-        return uv;
-    }
-    return fromLocal(local * (1.0f - strength * amount), centre, aspect);
+/// Pulls samples toward the centre, magnifying what is there.
+inline float2 magnify(float2 uv, WarpRegion r, float aspect) {
+    float2 local = toLocal(uv, r.centre, aspect);
+    float amount = falloff(length(local), r.radius);
+    if (amount <= 0.0f) { return uv; }
+    return fromLocal(local * (1.0f - r.weight * amount), r.centre, aspect);
 }
 
-/// Compresses vertically, which reads as the jaw being pulled long.
-inline float2 stretchVertically(float2 uv, float2 centre, float radius, float strength, float aspect) {
-    float2 local = toLocal(uv, centre, aspect);
-    float amount = falloff(length(local), radius);
-    if (amount <= 0.0f) {
-        return uv;
-    }
-    local.y /= (1.0f + strength * amount);
-    return fromLocal(local, centre, aspect);
+/// Widens horizontally and squashes vertically at the same time.
+///
+/// Sampling a narrower band makes the face read as wider; sampling a taller
+/// band makes it read as shorter. Together that is the squashed grandma mouth.
+inline float2 widen(float2 uv, WarpRegion r, float aspect) {
+    float2 local = toLocal(uv, r.centre, aspect);
+    float amount = falloff(length(local), r.radius);
+    if (amount <= 0.0f) { return uv; }
+    float w = r.weight * amount;
+    local.x /= (1.0f + w);
+    local.y *= (1.0f + w * 0.65f);
+    return fromLocal(local, r.centre, aspect);
 }
 
-inline float2 swirl(float2 uv, float2 centre, float radius, float strength, float aspect) {
-    float2 local = toLocal(uv, centre, aspect);
-    float amount = falloff(length(local), radius);
-    if (amount <= 0.0f) {
-        return uv;
-    }
-    float angle = strength * amount;
+/// Compresses vertically only. A negative weight stretches instead.
+inline float2 squash(float2 uv, WarpRegion r, float aspect) {
+    float2 local = toLocal(uv, r.centre, aspect);
+    float amount = falloff(length(local), r.radius);
+    if (amount <= 0.0f) { return uv; }
+    local.y *= (1.0f + r.weight * amount);
+    return fromLocal(local, r.centre, aspect);
+}
+
+inline float2 swirl(float2 uv, WarpRegion r, float aspect) {
+    float2 local = toLocal(uv, r.centre, aspect);
+    float amount = falloff(length(local), r.radius);
+    if (amount <= 0.0f) { return uv; }
+    float angle = r.weight * amount;
     float s = sin(angle);
     float c = cos(angle);
     float2 rotated = float2(local.x * c - local.y * s, local.x * s + local.y * c);
-    return fromLocal(rotated, centre, aspect);
+    return fromLocal(rotated, r.centre, aspect);
 }
 
-inline float2 applyEffect(float2 uv, constant FaceUniforms &u) {
-    if (u.effect == kEffectNone || u.strength <= 0.0f) {
-        return uv;
-    }
-
-    if (u.effect == kEffectBulgeEyes) {
-        // Each eye gets its own smaller disc, applied in sequence so the two
-        // regions can overlap at the bridge of the nose without fighting.
-        float eyeRadius = u.radius * 0.45f;
-        uv = magnify(uv, u.leftEye,  eyeRadius, u.strength, u.aspect);
-        uv = magnify(uv, u.rightEye, eyeRadius, u.strength, u.aspect);
-        return uv;
-    }
-
-    if (u.effect == kEffectStretchJaw) {
-        return stretchVertically(uv, u.mouth, u.radius * 0.8f, u.strength, u.aspect);
-    }
-
-    if (u.effect == kEffectBigHead) {
-        return magnify(uv, u.centre, u.radius * 1.6f, u.strength, u.aspect);
-    }
-
-    if (u.effect == kEffectSwirl) {
-        return swirl(uv, u.centre, u.radius * 1.2f, u.strength, u.aspect);
-    }
-
+inline float2 applyRegion(float2 uv, WarpRegion r, float aspect) {
+    if (r.kind == kWarpMagnify) { return magnify(uv, r, aspect); }
+    if (r.kind == kWarpWiden)   { return widen(uv, r, aspect); }
+    if (r.kind == kWarpSquash)  { return squash(uv, r, aspect); }
+    if (r.kind == kWarpSwirl)   { return swirl(uv, r, aspect); }
     return uv;
 }
 
-/// Composites the finished frame to screen, applying any distortion, and
-/// optionally to a copy the recorder downscales from.
+/// 1 inside the face, falling to 0 before the silhouette.
+///
+/// This is what stops a cheek warp dragging the background inward with it.
+/// Snap confines its warps to a face proxy mesh; this is the cheap equivalent.
+inline float faceHull(float2 uv, constant FaceUniforms &u) {
+    float2 local = toLocal(uv, u.hullCentre, u.aspect);
+    local.y /= kFaceAspect;
+    float dist = length(local);
+    return 1.0f - smoothstep(u.hullRadius * 0.80f, u.hullRadius * 1.20f, dist);
+}
+
+/// Composites the finished frame to screen, applying the warp, and optionally
+/// to a copy the recorder downscales from.
 ///
 /// `target` is always written, including when nothing is applied. Skipping the
 /// write leaves the drawable undefined and the screen goes black.
-///
-/// `work` is bound only while recording, and is the same size as `target` so a
-/// single grid covers both. Recording taps this rather than `target` because a
-/// drawable is not guaranteed to be readable, and because the warped result
-/// has to reach the encoder exactly as it reached the screen.
-kernel void composite(texture2d<half, access::sample> source [[texture(0)]],
-                      texture2d<half, access::write>  target [[texture(1)]],
-                      texture2d<half, access::write>  work   [[texture(2)]],
-                      constant FaceUniforms &uniforms        [[buffer(0)]],
+kernel void composite(texture2d<half, access::sample> source   [[texture(0)]],
+                      texture2d<half, access::write>  target   [[texture(1)]],
+                      texture2d<half, access::write>  work     [[texture(2)]],
+                      constant FaceUniforms &uniforms          [[buffer(0)]],
+                      constant WarpRegion *regions             [[buffer(1)]],
                       uint2 gid [[thread_position_in_grid]])
 {
     const uint width = target.get_width();
@@ -134,7 +135,17 @@ kernel void composite(texture2d<half, access::sample> source [[texture(0)]],
                                    coord::normalized);
 
     float2 uv = (float2(gid) + 0.5f) / float2(width, height);
-    half4 color = source.sample(frameSampler, applyEffect(uv, uniforms));
+
+    // Every region displaces the coordinate in turn, then the whole
+    // displacement is faded out at the edge of the face. Masking the result
+    // rather than each region keeps overlapping warps consistent.
+    float2 warped = uv;
+    for (int i = 0; i < uniforms.regionCount; ++i) {
+        warped = applyRegion(warped, regions[i], uniforms.aspect);
+    }
+    uv = mix(uv, warped, faceHull(uv, uniforms));
+
+    half4 color = source.sample(frameSampler, uv);
 
     // M1 spike: killing green and blue makes everything this kernel touches
     // read as red, which is how we tell whether `source` carries the camera

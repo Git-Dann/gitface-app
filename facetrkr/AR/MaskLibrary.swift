@@ -17,6 +17,10 @@ struct Mask: Identifiable {
     /// Main-actor isolated because RealityKit entity construction is, and
     /// saying so here is what lets the catalogue below be a plain `static let`.
     let build: @MainActor () -> Entity
+
+    /// A warp applied together with the props, if this mask is a full lens
+    /// rather than a plain prop. Nil leaves whatever warp is already selected.
+    var warp: WarpStyle? = nil
 }
 
 /// Main-actor isolated: every mask builds RealityKit entities, and every
@@ -29,6 +33,10 @@ enum MaskLibrary {
 
     static let all: [Mask] = [
         Mask(id: "none",     name: "None",     symbol: "person",            build: { Entity() }),
+
+        // A lens rather than a prop: the props and the warp only read together.
+        Mask(id: "grandma",  name: "Grandma",  symbol: "figure.dress.line.vertical.figure",
+             build: ProceduralMasks.grandma, warp: .grandma),
 
         // Animals
         Mask(id: "dog",      name: "Dog",      symbol: "dog.fill",          build: ProceduralMasks.dog),

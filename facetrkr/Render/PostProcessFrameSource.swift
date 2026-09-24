@@ -33,6 +33,7 @@ final class PostProcessFrameSource: @unchecked Sendable {
 
     private struct State {
         var uniforms = FaceUniforms()
+        var regions = [WarpRegion](repeating: WarpRegion(), count: FaceUniforms.maximumRegions)
         var isRecording = false
         var minimumFrameInterval: Double = 1.0 / 60.0
     }
@@ -83,11 +84,24 @@ final class PostProcessFrameSource: @unchecked Sendable {
         state.withLock { $0.uniforms.tint = enabled ? 1 : 0 }
     }
 
-    func setEffect(_ effect: FaceEffect, strength: Float) {
+    /// Replaces the whole warp in one write.
+    ///
+    /// Regions arrive already projected and weighted, because the work is done
+    /// on ARKit's delegate queue and the render thread contends for this lock.
+    func setWarp(regions: [WarpRegion], hullCentre: SIMD2<Float>, hullRadius: Float) {
+        let clamped = min(regions.count, FaceUniforms.maximumRegions)
         state.withLock {
-            $0.uniforms.effect = effect.rawValue
-            $0.uniforms.strength = strength
+            for index in 0..<clamped { $0.regions[index] = regions[index] }
+            $0.uniforms.regionCount = Int32(clamped)
+            $0.uniforms.hullCentre = hullCentre
+            $0.uniforms.hullRadius = hullRadius
         }
+    }
+
+    /// Drops the warp when tracking is lost, so the last frame's distortion
+    /// does not stay frozen on screen.
+    func clearWarp() {
+        state.withLock { $0.uniforms.regionCount = 0 }
     }
 
     func setRecording(_ recording: Bool) {
@@ -97,23 +111,6 @@ final class PostProcessFrameSource: @unchecked Sendable {
     func setTargetFrameRate(_ fps: Double) {
         let clamped = max(1, fps)
         state.withLock { $0.minimumFrameInterval = 1.0 / clamped }
-    }
-
-    /// Landmark positions in normalised screen space, updated per ARKit frame.
-    func updateLandmarks(
-        leftEye: SIMD2<Float>,
-        rightEye: SIMD2<Float>,
-        mouth: SIMD2<Float>,
-        centre: SIMD2<Float>,
-        radius: Float
-    ) {
-        state.withLock {
-            $0.uniforms.leftEye = leftEye
-            $0.uniforms.rightEye = rightEye
-            $0.uniforms.mouth = mouth
-            $0.uniforms.centre = centre
-            $0.uniforms.radius = radius
-        }
     }
 
     // MARK: Render thread
@@ -135,11 +132,17 @@ final class PostProcessFrameSource: @unchecked Sendable {
 
         guard let encoder = context.commandBuffer.makeComputeCommandEncoder() else { return }
         var uniforms = current.uniforms
+        var regions = current.regions
         encoder.setComputePipelineState(compositePipeline)
         encoder.setTexture(context.sourceColorTexture, index: 0)
         encoder.setTexture(targetTexture, index: 1)
         encoder.setTexture(work, index: 2)
         encoder.setBytes(&uniforms, length: MemoryLayout<FaceUniforms>.stride, index: 0)
+        encoder.setBytes(
+            &regions,
+            length: MemoryLayout<WarpRegion>.stride * FaceUniforms.maximumRegions,
+            index: 1
+        )
         dispatch(
             encoder,
             pipeline: compositePipeline,
