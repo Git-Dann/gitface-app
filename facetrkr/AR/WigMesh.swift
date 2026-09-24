@@ -110,14 +110,16 @@ enum WigMesh {
 
             guard let mesh = try? MeshResource.generate(from: [descriptor]) else { continue }
 
-            // glTF stores base colour linearly; UIColor components are read back
-            // the same way by RealityKit, so no conversion is wanted here.
+            // glTF stores base colour in linear light, but UIColor components
+            // are sRGB and RealityKit linearises them again on the way in.
+            // Passing the raw values straight through would square the colour
+            // and render silver hair as near-black.
             groups.append(Group(
                 mesh: mesh,
                 baseColour: UIColor(
-                    red: CGFloat(colour[0]),
-                    green: CGFloat(colour[1]),
-                    blue: CGFloat(colour[2]),
+                    red: CGFloat(encodeSRGB(colour[0])),
+                    green: CGFloat(encodeSRGB(colour[1])),
+                    blue: CGFloat(encodeSRGB(colour[2])),
                     alpha: 1
                 ),
                 roughness: colour[3],
@@ -125,5 +127,13 @@ enum WigMesh {
             ))
         }
         return groups
+    }
+
+    /// Linear light to sRGB, the exact transfer function rather than a 1/2.2
+    /// approximation — the difference shows in the dark end, which is most of
+    /// where this wig's colours sit.
+    private static func encodeSRGB(_ value: Float) -> Float {
+        let c = min(max(value, 0), 1)
+        return c <= 0.0031308 ? c * 12.92 : 1.055 * pow(c, 1 / 2.4) - 0.055
     }
 }

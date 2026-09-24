@@ -28,8 +28,13 @@ enum ProceduralMasks {
         static let crimson = UIColor(red: 0.78, green: 0.14, blue: 0.18, alpha: 1)
         static let charcoal = UIColor(red: 0.12, green: 0.12, blue: 0.14, alpha: 1)
         static let hair = UIColor(red: 0.80, green: 0.80, blue: 0.82, alpha: 1)
-        static let roller = UIColor(red: 0.96, green: 0.96, blue: 0.97, alpha: 1)
-        static let rollerBand = UIColor(red: 0.91, green: 0.29, blue: 0.56, alpha: 1)
+        // Matched to the supplied wig's own materials, converted out of the
+        // linear light glTF stores them in. The barrel is pink and the end
+        // faces ivory, which is also what the reference photograph shows; the
+        // white drum these started as read as a bobbin.
+        static let roller = UIColor(red: 0.78, green: 0.20, blue: 0.47, alpha: 1)
+        static let rollerBand = UIColor(red: 0.84, green: 0.32, blue: 0.54, alpha: 1)
+        static let rollerFace = UIColor(red: 0.97, green: 0.93, blue: 0.94, alpha: 1)
         static let frame = UIColor(red: 0.09, green: 0.09, blue: 0.11, alpha: 1)
     }
 
@@ -67,9 +72,10 @@ enum ProceduralMasks {
             // rather than a round highlight. Without this the strands read as
             // grey plastic tubes however many of them there are.
             material.anisotropyLevel = .init(floatLiteral: 0.8)
-            // Strands are modelled geometry here, so both faces of a tube can
-            // face the camera as the head turns.
-            material.faceCulling = .none
+            // No face-culling override: the strands are closed tubes, so back
+            // faces are never seen and culling them halves the fragment work.
+            // That matters at this triangle count, where the strands are thin
+            // enough to be the worst case for rasterisation.
             root.addChild(.shaped(group.mesh, material: material))
         }
         return root
@@ -97,13 +103,20 @@ enum ProceduralMasks {
 
         let drum = rollerMaterial()
         let flange = plasticMaterial(Shade.rollerBand, roughness: 0.35)
-        let face = plasticMaterial(Shade.roller, roughness: 0.45)
+        let face = plasticMaterial(Shade.rollerFace, roughness: 0.45)
         let wire = plasticMaterial(Shade.steel, roughness: 0.25, metallic: true)
 
-        let length = WigPlacement.barrelLength
-        let radius = WigPlacement.barrelRadius
-        let rimRadius = WigPlacement.rimRadius
-        let rimLength = WigPlacement.rimLength
+        // The supplied rollers are about 10 cm long, two thirds the width of a
+        // head. Rendered at that size they read as a ring of cotton reels with
+        // the hair lost between them, which is what the asset itself looks
+        // like. Shrunk about their own centres they read as rollers, and the
+        // hair — modelled to wrap the larger size — sits a little loose around
+        // them, which passes for hair.
+        let shrink: Float = 0.6
+        let length = WigPlacement.barrelLength * shrink
+        let radius = WigPlacement.barrelRadius * shrink
+        let rimRadius = WigPlacement.rimRadius * shrink
+        let rimLength = WigPlacement.rimLength * shrink
 
         let barrel = CylinderMesh.generate(length: length, radius: radius, capped: false)
         let rim = CylinderMesh.generate(length: rimLength, radius: rimRadius, segments: 20)

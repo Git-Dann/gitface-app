@@ -17,38 +17,38 @@ enum WigPlacement {
     }
 
     /// Barrel extent along its own X axis, in metres.
-    static let barrelLength: Float = 0.08086
-    static let barrelRadius: Float = 0.01601
-    static let rimRadius: Float = 0.02313
-    static let rimLength: Float = 0.00885
+    static let barrelLength: Float = 0.08035
+    static let barrelRadius: Float = 0.01591
+    static let rimRadius: Float = 0.02299
+    static let rimLength: Float = 0.00880
 
     static let rollers: [Roller] = [
         Roller(name: "Roller 01 - front left",
-               position: SIMD3(-0.05093, +0.08557, +0.02849),
+               position: SIMD3(-0.04971, +0.08338, +0.02754),
                orientation: simd_quatf(ix: -0.70552, iy: +0.04739, iz: +0.28691, r: +0.64628)),
         Roller(name: "Roller 02 - front right",
-               position: SIMD3(+0.05025, +0.08731, +0.02936),
+               position: SIMD3(+0.05084, +0.08512, +0.02841),
                orientation: simd_quatf(ix: -0.64554, iy: -0.28858, iz: -0.08289, r: +0.70223)),
         Roller(name: "Roller 03 - left temple",
-               position: SIMD3(-0.08582, +0.03672, +0.00669),
+               position: SIMD3(-0.08438, +0.03484, +0.00587),
                orientation: simd_quatf(ix: +0.58882, iy: +0.39152, iz: -0.51153, r: -0.48820)),
         Roller(name: "Roller 04 - right temple",
-               position: SIMD3(+0.08514, +0.03846, +0.00669),
+               position: SIMD3(+0.08551, +0.03657, +0.00587),
                orientation: simd_quatf(ix: -0.49678, iy: -0.50320, iz: +0.36295, r: +0.60685)),
         Roller(name: "Roller 05 - upper left",
-               position: SIMD3(-0.04569, +0.11435, -0.01774),
+               position: SIMD3(-0.04451, +0.11199, -0.01840),
                orientation: simd_quatf(ix: -0.70326, iy: +0.07363, iz: +0.49395, r: +0.50598)),
         Roller(name: "Roller 06 - upper right",
-               position: SIMD3(+0.05025, +0.11522, -0.02123),
+               position: SIMD3(+0.05084, +0.11285, -0.02187),
                orientation: simd_quatf(ix: -0.56230, iy: -0.42874, iz: -0.10521, r: +0.69924)),
         Roller(name: "Roller 07 - rear left",
-               position: SIMD3(-0.07186, +0.06202, -0.06484),
+               position: SIMD3(-0.07051, +0.05998, -0.06521),
                orientation: simd_quatf(ix: +0.67514, iy: +0.21022, iz: -0.55276, r: -0.44097)),
         Roller(name: "Roller 08 - rear right",
-               position: SIMD3(+0.07119, +0.06376, -0.06658),
+               position: SIMD3(+0.07164, +0.06171, -0.06694),
                orientation: simd_quatf(ix: -0.48234, iy: -0.51706, iz: +0.20716, r: +0.67608)),
         Roller(name: "Roller 09 - rear crown",
-               position: SIMD3(+0.00141, +0.09778, -0.08752),
+               position: SIMD3(+0.00230, +0.09552, -0.08774),
                orientation: simd_quatf(ix: -0.70034, iy: -0.09757, iz: +0.15294, r: +0.69037)),
     ]
 }
