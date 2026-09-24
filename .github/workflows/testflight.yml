@@ -160,16 +160,47 @@ jobs:
             -authenticationKeyIssuerID "$ISSUER_ID" \
             2>&1 | tee export.log
 
+      # xcodebuild writes its real App Store Connect exchange to a temp folder
+      # and only prints the path. Without this the logs say "permission error"
+      # and nothing about why.
+      - name: Collect distribution logs
+        if: failure() && steps.creds.outputs.ready == 'true'
+        run: |
+          mkdir -p distribution-logs
+          find "${TMPDIR:-/tmp}" -maxdepth 2 -name '*.xcdistributionlogs' -print0 2>/dev/null \
+            | xargs -0 -I {} cp -R {} distribution-logs/ 2>/dev/null || true
+          find distribution-logs -type f | head -20 || true
+
       - name: Summarise failures
         if: failure() && steps.creds.outputs.ready == 'true'
         run: |
           {
-            echo '## Upload failed'
+            echo "## Upload failed"
             echo
             echo '```'
             grep -hE '(error|Error|failed): ' archive.log export.log 2>/dev/null | sort -u | head -40 \
               || echo 'No error lines matched — check the full logs.'
             echo '```'
+
+            # These two arrive together and are almost always the same two
+            # causes. Saying so here saves reading the Apple forums.
+            if grep -q 'Cloud signing permission error\|No profiles for' export.log 2>/dev/null; then
+              echo
+              echo "### What this usually means"
+              echo
+              echo "The archive signed fine with a **development** identity, but uploading needs an"
+              echo "**Apple Distribution** certificate and an App Store profile, and the API key could"
+              echo "not create one. Two causes, and both may apply:"
+              echo
+              echo "1. **No app record in App Store Connect** for this bundle identifier, so there is"
+              echo "   nothing for an App Store profile to attach to. Register the App ID under"
+              echo "   Certificates, Identifiers & Profiles first, then create the app."
+              echo "2. **The API key's role is too low.** A Developer-role key can mint development"
+              echo "   certificates but not distribution ones. It needs App Manager with access to"
+              echo "   certificates, or Admin."
+              echo
+              echo "The \`distribution-logs\` artifact on this run holds Apple's side of the exchange."
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
 
       # The key is a company credential. Do not leave it on the runner, even
@@ -186,4 +217,5 @@ jobs:
           path: |
             archive.log
             export.log
+            distribution-logs/
           if-no-files-found: ignore
