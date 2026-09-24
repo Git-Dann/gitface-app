@@ -95,7 +95,35 @@ final class FaceSessionCoordinator: NSObject, ARSessionDelegate, FaceSessionCont
         // session.
         configuration.providesAudioData = true
 
+        if let format = Self.preferredVideoFormat() {
+            configuration.videoFormat = format
+            let size = format.imageResolution
+            print("[facetrkr] using \(Int(size.width))x\(Int(size.height)) @ \(format.framesPerSecond)fps")
+        }
+
         session.run(configuration, options: [.resetTracking, .removeExistingAnchors])
+    }
+
+    /// Picks the capture format rather than accepting ARKit's default.
+    ///
+    /// The default is conservative, and passthrough resolution is the ceiling
+    /// on recording quality: whatever the camera hands RealityKit is what ends
+    /// up in the encoder. A 2026 iPhone offers 1920x1080 at 60fps, which in
+    /// portrait is exactly the 1080x1920 encode size, so taking the default
+    /// would mean recording a softer image than the hardware can produce.
+    ///
+    /// Frame rate wins over resolution: 60fps matters more than extra pixels
+    /// for a face that moves, and the 4:3 formats would be cropped to portrait
+    /// 16:9 anyway. Falls back to the largest format if nothing offers 60.
+    nonisolated private static func preferredVideoFormat() -> ARConfiguration.VideoFormat? {
+        let formats = ARFaceTrackingConfiguration.supportedVideoFormats
+
+        func pixels(_ format: ARConfiguration.VideoFormat) -> CGFloat {
+            format.imageResolution.width * format.imageResolution.height
+        }
+
+        let fast = formats.filter { $0.framesPerSecond >= 60 }
+        return (fast.isEmpty ? formats : fast).max { pixels($0) < pixels($1) }
     }
 
     /// Must be active before the session starts, or the mic route is wrong.

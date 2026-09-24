@@ -52,9 +52,18 @@ it is checked before anything is built on top of it.
 
 ### 5. Note the capture resolution
 
-Filter the Xcode console for `facetrkr` and record the lines reading
-`[facetrkr] face video format: …`. They cap the recording quality. The only
-public figure is 720p-only and dates from 2018.
+Filter the Xcode console for `facetrkr`. The `face video format:` lines list
+what the device offers, and the `using …` line says which was chosen.
+
+Measured on an iPhone with Face ID, September 2026:
+
+```
+1920x1440 @ 30    1920x1080 @ 60    1440x1080 @ 60/30    1280x720 @ 60/30
+```
+
+Worth recording because the only public figure for this was 720p-only and dated
+from 2018, which is what the code originally assumed. The app now selects
+1920x1080 at 60fps, which in portrait is exactly the 1080x1920 encode size.
 
 ### Expect rough edges
 
