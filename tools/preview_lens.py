@@ -33,23 +33,22 @@ from PIL import Image
 
 MAGNIFY, WIDEN, SQUASH, SWIRL, PULL = 1, 2, 3, 4, 5
 
-# (anchor, kind, radius in eye-spans, weight, direction)
+# (anchor, kind, radius in eye-spans, weight, direction). Mirrors
+# WarpStyle.grandma; change both together or this stops predicting anything.
+# "outward" as a direction means away from the face centre, resolved per frame.
 GRANDMA_REGIONS = [
-    ("leftCheek", MAGNIFY, 0.85, 0.75, (0, 1)),
-    ("rightCheek", MAGNIFY, 0.85, 0.75, (0, 1)),
-    ("mouth", WIDEN, 1.00, 0.80, (0, 1)),
-    ("leftEye", SQUASH, 0.45, 0.35, (0, 1)),
-    ("rightEye", SQUASH, 0.45, 0.35, (0, 1)),
-    ("brow", PULL, 0.90, 0.22, (0, 1)),
-    ("leftJowl", PULL, 0.70, 0.38, (0, 1)),
-    ("rightJowl", PULL, 0.70, 0.38, (0, 1)),
-    ("chin", SQUASH, 0.60, 0.30, (0, 1)),
-    ("noseTip", MAGNIFY, 0.40, 0.25, (0, 1)),
-    ("faceCentre", MAGNIFY, 2.00, 0.12, (0, 1)),
+    ("faceCentre", WIDEN, 2.00, 0.95, (0, 1)),
+    ("mouth", WIDEN, 1.05, 0.65, (0, 1)),
+    ("leftJowl", PULL, 0.95, 0.38, "outward"),
+    ("rightJowl", PULL, 0.95, 0.38, "outward"),
+    ("leftEye", SQUASH, 0.52, 0.85, (0, 1)),
+    ("rightEye", SQUASH, 0.52, 0.85, (0, 1)),
+    ("brow", PULL, 0.90, 0.28, (0, 1)),
+    ("chin", SQUASH, 0.78, 0.50, (0, 1)),
 ]
 
-SKIN = dict(creases=0.55, ridge=0.45, desaturate=0.22, sallow=0.18,
-            blotch=0.28, browGrey=0.70, jawShade=0.30)
+SKIN = dict(creases=0.16, ridge=0.14, desaturate=0.05, sallow=0.05,
+            blotch=0.07, browGrey=0.45, jawShade=0.08)
 
 HULL_RADIUS = 2.00       # eye-spans
 BROW_RADIUS = 0.52
@@ -230,7 +229,12 @@ def render(image, left_eye, right_eye, regions, skin, scale_skin=1.0):
     yy, xx = np.mgrid[0:h, 0:w].astype(np.float64)
     wx, wy = xx.copy(), yy.copy()
     for name, kind, radius, weight, direction in regions:
-        wx, wy = apply_region(wx, wy, anchor[name], kind, radius * span,
+        centre = anchor[name]
+        if direction == "outward":
+            away = centre - anchor["faceCentre"]
+            n = np.linalg.norm(away)
+            direction = tuple(away / n) if n > 1e-5 else (1.0, 0.0)
+        wx, wy = apply_region(wx, wy, centre, kind, radius * span,
                               weight, direction)
 
     hull = face_hull(xx, yy, anchor["faceCentre"], HULL_RADIUS * span)

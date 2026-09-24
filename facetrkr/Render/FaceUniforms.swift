@@ -45,8 +45,15 @@ struct WarpSpec {
     /// value inverts the effect. Worth matching; the range is well judged.
     var weight: Float
     /// Which way `.pull` drags, in screen space where +y is down. Ignored by
-    /// every other kind.
+    /// every other kind, and overridden when `outward` is set.
     var direction: SIMD2<Float> = SIMD2(0, 1)
+    /// Drags away from the face centre instead of along `direction`.
+    ///
+    /// The jowls pull sideways, and which side is which depends on the mirroring
+    /// of the preview and on which way the anchor's X axis points. Deriving the
+    /// direction from the projected positions settles it at runtime rather than
+    /// baking in a guess that is right on one device and inverted on another.
+    var outward: Bool = false
     /// Winds the weight up as the mouth opens.
     var jawDriven: Bool = false
 }
@@ -78,14 +85,24 @@ struct SkinTreatment {
 
     static let none = SkinTreatment()
 
+    /// Deliberately faint.
+    ///
+    /// The reference photograph has no aged-skin treatment at all: no wrinkle
+    /// overlay, no desaturation, no age spots. Its whole "old" read comes from
+    /// the grey hair, the rollers, the glasses and the face shape. Rendered
+    /// offline at the strength this used to ship at, the face goes grey and
+    /// muddy and looks grimy rather than old.
+    ///
+    /// So this is a hint rather than a treatment, and the debug slider scales
+    /// it if more is wanted.
     static let aged = SkinTreatment(
-        creases: 0.55,
-        ridge: 0.45,
-        desaturate: 0.22,
-        sallow: 0.18,
-        blotch: 0.28,
-        browGrey: 0.70,
-        jawShade: 0.30
+        creases: 0.16,
+        ridge: 0.14,
+        desaturate: 0.05,
+        sallow: 0.05,
+        blotch: 0.07,
+        browGrey: 0.45,
+        jawShade: 0.08
     )
 }
 
@@ -122,48 +139,44 @@ struct WarpStyle: Identifiable {
         specs: [WarpSpec(anchor: .faceCentre, kind: .swirl, radius: 1.8, weight: 2.0, jawDriven: true)]
     )
 
-    /// The reference lens, read off the photograph.
+    /// The reference lens, measured off the photograph rather than guessed.
+    ///
+    /// The cheeks used to be `magnify`, which was simply the wrong operator.
+    /// `magnify` pulls samples toward a point, and with a quadratic falloff the
+    /// effect is near zero out at the silhouette, so it enlarged the middle of
+    /// each cheek and dragged the face outline *inward*. Rendering it offline
+    /// against a real face made that obvious in one pass; the reference is a
+    /// face ballooned outward, which is what a `widen` across the whole lower
+    /// face does.
     ///
     /// Deliberately a caricature rather than clinical ageing: real ageing
-    /// hollows the midface, but the Snapchat lens puffs the cheeks out, and
-    /// that is the look being matched.
-    ///
-    /// Eleven regions, because the shape only reads as a whole. Puffed cheeks
-    /// alone are a baby; narrowed eyes alone are a squint. Together with the
-    /// sagging jowls and the wide flat mouth they are an old lady.
-    ///
-    /// Every radius is in eye-spans and every weight was set against the
-    /// corrected screen scale — see the note on `span` in
-    /// `FaceSessionCoordinator`, which was measuring 2.2x too large and made
-    /// all of this read as a soft smear.
+    /// hollows the midface, but the reference lens puffs it out.
     static let grandma = WarpStyle(
         id: "grandma", name: "Grandma", symbol: "figure.dress.line.vertical.figure",
         specs: [
-            // The cheeks carry the silhouette.
-            WarpSpec(anchor: .leftCheek, kind: .magnify, radius: 0.85, weight: 0.75),
-            WarpSpec(anchor: .rightCheek, kind: .magnify, radius: 0.85, weight: 0.75),
+            // The whole lower face, wider and a little shorter. This one region
+            // carries most of the shape.
+            WarpSpec(anchor: .faceCentre, kind: .widen, radius: 2.00, weight: 0.95),
 
             // Wide and flattened, winding up as the mouth opens.
-            WarpSpec(anchor: .mouth, kind: .widen, radius: 1.00, weight: 0.80, jawDriven: true),
+            WarpSpec(anchor: .mouth, kind: .widen, radius: 1.05, weight: 0.65,
+                     jawDriven: true),
+
+            // The sag, dragged sideways rather than down: at this size a jowl
+            // reads as width at the jaw, not as a droop.
+            WarpSpec(anchor: .leftJowl, kind: .pull, radius: 0.95, weight: 0.38,
+                     outward: true),
+            WarpSpec(anchor: .rightJowl, kind: .pull, radius: 0.95, weight: 0.38,
+                     outward: true),
 
             // Narrowed eyes under a lowered brow.
-            WarpSpec(anchor: .leftEye, kind: .squash, radius: 0.45, weight: 0.35),
-            WarpSpec(anchor: .rightEye, kind: .squash, radius: 0.45, weight: 0.35),
-            WarpSpec(anchor: .brow, kind: .pull, radius: 0.90, weight: 0.22,
+            WarpSpec(anchor: .leftEye, kind: .squash, radius: 0.52, weight: 0.85),
+            WarpSpec(anchor: .rightEye, kind: .squash, radius: 0.52, weight: 0.85),
+            WarpSpec(anchor: .brow, kind: .pull, radius: 0.90, weight: 0.28,
                      direction: SIMD2(0, 1)),
 
-            // The sag. Nothing else here can express a one-way droop.
-            WarpSpec(anchor: .leftJowl, kind: .pull, radius: 0.70, weight: 0.38,
-                     direction: SIMD2(0, 1)),
-            WarpSpec(anchor: .rightJowl, kind: .pull, radius: 0.70, weight: 0.38,
-                     direction: SIMD2(0, 1)),
-
-            // A shortened chin under a slightly heavier nose.
-            WarpSpec(anchor: .chin, kind: .squash, radius: 0.60, weight: 0.30),
-            WarpSpec(anchor: .noseTip, kind: .magnify, radius: 0.40, weight: 0.25),
-
-            // A touch of overall roundness to tie it together.
-            WarpSpec(anchor: .faceCentre, kind: .magnify, radius: 2.00, weight: 0.12)
+            // A shortened chin.
+            WarpSpec(anchor: .chin, kind: .squash, radius: 0.78, weight: 0.50)
         ],
         skin: .aged
     )

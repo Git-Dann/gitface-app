@@ -356,9 +356,22 @@ final class FaceSessionCoordinator: NSObject, ARSessionDelegate, FaceSessionCont
 
         let regions = style.specs.prefix(FaceUniforms.maximumRegions).map { spec in
             let driven = spec.jawDriven ? spec.weight * (0.55 + 0.45 * jawOpen) : spec.weight
+            let centre = point(spec.anchor)
+
+            // An outward pull points away from the face centre, worked out from
+            // the projected positions. Baking a sign in instead would be right
+            // on one mirroring and inverted on the other.
+            var direction = spec.direction
+            if spec.outward {
+                let away = SIMD2<Float>((centre.x - centreScreen.x) * aspect,
+                                        centre.y - centreScreen.y)
+                let length = simd_length(away)
+                direction = length > 1e-5 ? away / length : SIMD2(1, 0)
+            }
+
             return WarpRegion(
-                centre: point(spec.anchor),
-                direction: spec.direction,
+                centre: centre,
+                direction: direction,
                 radius: spec.radius * span,
                 kind: spec.kind.rawValue,
                 weight: driven * tuning.warp
