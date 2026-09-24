@@ -24,11 +24,14 @@ struct ContentView: View {
         // material, so the current one is rebuilt once the cache is warm
         // rather than leaving the first-selected lens looking untextured.
         .task {
-            // Both parse or generate off the main actor and then publish on it.
-            // Until they land, masks build with flat materials and no wig, so
-            // the current one is rebuilt once rather than left unfinished.
+            // Generates off the main actor and publishes on it. Until it lands,
+            // masks build with flat materials, so the current one is rebuilt
+            // once rather than left looking untextured.
+            //
+            // WigMesh is deliberately not warmed: no lens uses it while the
+            // supplied wig's proportions do not match the reference, and
+            // parsing 3.6 MB at launch for nothing is not free.
             await ProceduralTexture.warm()
-            await WigMesh.warm()
             state.reapplyMask()
         }
         .alert(

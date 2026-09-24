@@ -30,6 +30,9 @@ enum ProceduralTexture {
         case rollerNormal
         /// Glossy plastic web against matte holes.
         case rollerRoughness
+        /// White mesh with the pink barrel showing through the holes, which is
+        /// what the reference photograph shows.
+        case rollerBase
 
         /// Big enough for the perforations to survive mipmapping at arm's
         /// length, small enough that building them is not felt at launch.
@@ -56,12 +59,14 @@ enum ProceduralTexture {
         let built = await Task.detached(priority: .userInitiated) {
             (
                 normal: normalMapPixels(size: size, strength: 2.4, height: rollerHeight),
-                roughness: scalarMapPixels(size: size, value: rollerRoughness)
+                roughness: scalarMapPixels(size: size, value: rollerRoughness),
+                base: colourMapPixels(size: size, colour: rollerBaseColour)
             )
         }.value
 
         await store(built.normal, as: .rollerNormal, semantic: .normal)
         await store(built.roughness, as: .rollerRoughness, semantic: .raw)
+        await store(built.base, as: .rollerBase, semantic: .color)
     }
 
     private static func store(
@@ -116,6 +121,18 @@ enum ProceduralTexture {
         0.22 + (1 - rollerHeight(u, v)) * 0.62
     }
 
+    /// White mesh over a pink barrel.
+    ///
+    /// Measured off the reference photograph, where each roller is a white
+    /// plastic grille with the pink drum visible through it. Shipping a solid
+    /// pink barrel made them read as bobbins.
+    nonisolated static func rollerBaseColour(_ u: Float, _ v: Float) -> SIMD3<Float> {
+        let web = rollerHeight(u, v)
+        let pink = SIMD3<Float>(0.72, 0.13, 0.38)
+        let white = SIMD3<Float>(0.97, 0.95, 0.95)
+        return pink + (white - pink) * web
+    }
+
     // MARK: - Map building
 
     /// Converts a height field to a tangent-space normal map.
@@ -157,6 +174,19 @@ enum ProceduralTexture {
         return pixels(size: size) { x, y in
             let level = byte(value((Float(x) + 0.5) * step, (Float(y) + 0.5) * step))
             return (level, level, level)
+        }
+    }
+
+    /// A full-colour map.
+    nonisolated static func colourMapPixels(
+        size: Int,
+        colour: (Float, Float) -> SIMD3<Float>
+    ) -> [UInt8] {
+        let step = 1 / Float(size)
+
+        return pixels(size: size) { x, y in
+            let c = colour((Float(x) + 0.5) * step, (Float(y) + 0.5) * step)
+            return (byte(c.x), byte(c.y), byte(c.z))
         }
     }
 

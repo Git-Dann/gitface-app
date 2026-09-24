@@ -40,112 +40,90 @@ enum ProceduralMasks {
 
     // MARK: - Grandma
 
-    /// The reference lens: a silver roller set over heavy square frames.
+    /// The reference lens: a crown of rollers over heavy square frames.
     ///
-    /// The hair is the one part not built from primitives. Procedural hair cards
-    /// were the plan until Dan supplied a modelled wig, and modelled strands beat
-    /// cards by enough to be worth the conversion. See `WigMesh` for what that
-    /// conversion drops and why.
+    /// Everything here is measured off the reference photograph in eye-spans,
+    /// where an eye span is the 0.066 m between `FaceLandmark.eye(.left)` and
+    /// `.eye(.right)`, rather than guessed.
     ///
-    /// The rollers are still ours. The supplied ones were flat colour with no
-    /// texture maps at all, whereas these carry generated normal and roughness
-    /// maps, so they catch light across their surface. They sit at the supplied
-    /// transforms though — the hair is modelled wound around them, and moving
-    /// them leaves barrel-shaped holes in it.
+    /// The supplied wig is not used. Its rollers are 0.081 m long against the
+    /// 0.038 m the photograph shows, and its hair is modelled wound around
+    /// them, so correct proportions leave every strand in a sleeve twice the
+    /// length of the roller inside it. Rendering both settled it: the
+    /// photograph is the target, so the proportions win. `WigMesh` and the
+    /// converter stay in the repository for a wig whose proportions suit.
     static func grandma() -> Entity {
         let root = Entity()
-        root.addChild(wig())
         root.addChild(curlerCrown())
         root.addChild(readingGlasses())
         return root
     }
 
-    /// The converted wig, one entity per material group.
-    private static func wig() -> Entity {
-        let root = Entity()
-        for group in WigMesh.groups() {
-            var material = PhysicallyBasedMaterial()
-            material.baseColor = .init(tint: group.baseColour, texture: nil)
-            material.roughness = .init(floatLiteral: group.roughness)
-            material.metallic = .init(floatLiteral: group.metallic)
-            // Hair is anisotropic: it catches a band of light along the strand
-            // rather than a round highlight. Without this the strands read as
-            // grey plastic tubes however many of them there are.
-            material.anisotropyLevel = .init(floatLiteral: 0.8)
-            // No face-culling override: the strands are closed tubes, so back
-            // faces are never seen and culling them halves the fragment work.
-            // That matters at this triangle count, where the strands are thin
-            // enough to be the worst case for rasterisation.
-            root.addChild(.shaped(group.mesh, material: material))
-        }
-        return root
-    }
-
-    /// The rollers, rebuilt at the wig's own transforms.
+    /// The crown of rollers.
     ///
-    /// Placed around an arc before, which was fine when the hair was procedural
-    /// too. Now the hair is modelled wound around nine specific rollers, so the
-    /// positions come from `WigPlacement`, generated from the same file.
+    /// Eleven around an ellipse that follows the hairline, from above the
+    /// forehead down past each temple to about ear height, which is where the
+    /// photograph puts them. Each is tangent to the arc, so they stand upright
+    /// at the sides and lie flat across the top.
     ///
-    /// The sizes come from there as well and are larger than a real roller —
-    /// about 8 cm long. That is the look the supplied asset went for, and the
-    /// hair is shaped to it, so shrinking them to life size would only open
-    /// gaps.
+    /// Sizes come from the photograph: 0.58 eye-spans long and 0.46 across, a
+    /// ratio of about 1.25 to 1. The ones that shipped before were 2.55 to 1,
+    /// which is why they read as cotton reels rather than rollers.
     ///
-    /// The first version of these was three plain cylinders in a flat colour,
-    /// which is why they read as featureless plastic: nothing on the surface for
-    /// light to catch. A real roller is a perforated drum with flanged ends and
-    /// a wire clip, and all of that is here now — the perforations as a
-    /// generated normal map, the plastic-against-holes contrast as a roughness
-    /// map, the rest as geometry.
+    /// The drum itself is a white plastic grille with the pink barrel showing
+    /// through, carried by generated normal, roughness and base colour maps.
+    /// That surface detail is the whole difference between a roller and a
+    /// cylinder.
     private static func curlerCrown() -> Entity {
         let root = Entity()
 
+        let count = 11
+        let arc: Float = 2.40          // radians either side of the crown
         let drum = rollerMaterial()
-        let flange = plasticMaterial(Shade.rollerBand, roughness: 0.35)
-        let face = plasticMaterial(Shade.rollerFace, roughness: 0.45)
-        let wire = plasticMaterial(Shade.steel, roughness: 0.25, metallic: true)
+        let rim = plasticMaterial(Shade.rollerBand, roughness: 0.35)
+        let wound = plasticMaterial(Shade.hair, roughness: 0.92)
 
-        // The supplied rollers are about 10 cm long, two thirds the width of a
-        // head. Rendered at that size they read as a ring of cotton reels with
-        // the hair lost between them, which is what the asset itself looks
-        // like. Shrunk about their own centres they read as rollers, and the
-        // hair — modelled to wrap the larger size — sits a little loose around
-        // them, which passes for hair.
-        let shrink: Float = 0.6
-        let length = WigPlacement.barrelLength * shrink
-        let radius = WigPlacement.barrelRadius * shrink
-        let rimRadius = WigPlacement.rimRadius * shrink
-        let rimLength = WigPlacement.rimLength * shrink
+        // Measured: 0.58 x 0.46 eye-spans, at 0.066 m to the eye span.
+        let length: Float = 0.0383
+        let radius: Float = 0.0152
+        let rimRadius = radius * 1.12
+        let rimLength: Float = 0.0042
 
-        let barrel = CylinderMesh.generate(length: length, radius: radius, capped: false)
-        let rim = CylinderMesh.generate(length: rimLength, radius: rimRadius, segments: 20)
-        let cap = CylinderMesh.generate(
-            length: rimLength * 0.35,
-            radius: rimRadius * 0.82,
-            segments: 20
+        let barrelMesh = CylinderMesh.generate(length: length, radius: radius, capped: false)
+        let rimMesh = CylinderMesh.generate(length: rimLength, radius: rimRadius, segments: 20)
+        let hairMesh = CylinderMesh.generate(
+            length: length * 0.58,
+            radius: radius * 1.16,
+            segments: 20,
+            capped: false
         )
-        let clip = CylinderMesh.generate(length: length * 1.02, radius: radius * 0.07, segments: 8)
 
-        for placement in WigPlacement.rollers {
+        for index in 0..<count {
+            let t = Float(index) / Float(count - 1)
+            let angle = -arc + arc * 2 * t
+
             let roller = Entity()
-            roller.position = placement.position
-            roller.orientation = placement.orientation
+            roller.position = [
+                sin(angle) * 0.094,
+                0.065 + cos(angle) * 0.070,
+                // The ones down the sides sit further back, following the skull.
+                0.012 - (1 - cos(angle)) * 0.016
+            ]
+            // Tangent to the arc, so a roller lies flat over the forehead and
+            // stands upright beside the ear.
+            roller.orientation = simd_quatf(angle: angle, axis: [0, 0, 1])
 
-            roller.addChild(.shaped(barrel, material: drum))
-
+            roller.addChild(.shaped(barrelMesh, material: drum))
             for end in [Float(-1), 1] {
-                let offset = (length / 2 + rimLength / 2) * end
-                roller.addChild(.shaped(rim, material: flange, at: [offset, 0, 0]))
-                // Ivory end face, set slightly proud of the pink rim.
                 roller.addChild(.shaped(
-                    cap,
-                    material: face,
-                    at: [offset + rimLength * 0.5 * end, 0, 0]
+                    rimMesh,
+                    material: rim,
+                    at: [(length / 2 + rimLength / 2) * end, 0, 0]
                 ))
             }
+            // Hair wound over the middle, proud of the drum.
+            roller.addChild(.shaped(hairMesh, material: wound))
 
-            roller.addChild(.shaped(clip, material: wire, at: [0, radius * 1.05, 0]))
             root.addChild(roller)
         }
         return root
@@ -158,13 +136,15 @@ enum ProceduralMasks {
     /// which it is for the first moment after launch.
     private static func rollerMaterial() -> RealityKit.Material {
         guard let normal = ProceduralTexture.resource(.rollerNormal),
-              let roughness = ProceduralTexture.resource(.rollerRoughness)
+              let roughness = ProceduralTexture.resource(.rollerRoughness),
+              let base = ProceduralTexture.resource(.rollerBase)
         else {
             return SimpleMaterial(color: Shade.roller, roughness: 0.5, isMetallic: false)
         }
 
         var material = PhysicallyBasedMaterial()
-        material.baseColor = .init(tint: Shade.roller, texture: nil)
+        // White tint so the map's own colours come through unchanged.
+        material.baseColor = .init(tint: .white, texture: .init(base))
         material.normal = .init(texture: .init(normal))
         // Scale 1 so the map is taken as written: it already spans glossy
         // plastic to matte hole.
@@ -200,7 +180,10 @@ enum ProceduralMasks {
             // Four bars per lens rather than a solid plate, so the frame reads
             // as a rim with the eye visible through it.
             let width: Float = 0.052
-            let height: Float = 0.040
+            // 0.87 eye-spans in the photograph, where these were 0.63. The
+            // frames reach from above the brow to below the nose base, which
+            // is a large part of why the reference reads as reading glasses.
+            let height: Float = 0.055
             let bar: Float = 0.0055
 
             for vertical in [Float(-1), 1] {
