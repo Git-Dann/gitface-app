@@ -46,6 +46,9 @@ struct WarpStyle: Identifiable {
     let name: String
     let symbol: String
     let specs: [WarpSpec]
+    /// How strongly aged-skin lines are multiplied over the camera. Zero for
+    /// everything that is not trying to look old.
+    var wrinkles: Float = 0
 
     static let none = WarpStyle(id: "none", name: "Off", symbol: "circle.slash", specs: [])
 
@@ -85,7 +88,8 @@ struct WarpStyle: Identifiable {
             WarpSpec(anchor: .mouth, kind: .widen, radius: 1.15, weight: 0.55, jawDriven: true),
             WarpSpec(anchor: .leftEye, kind: .squash, radius: 0.5, weight: 0.30),
             WarpSpec(anchor: .rightEye, kind: .squash, radius: 0.5, weight: 0.30)
-        ]
+        ],
+        wrinkles: 0.55
     )
 
     static let all: [WarpStyle] = [none, grandma, bulgeEyes, stretchJaw, bigHead, swirl]
@@ -100,6 +104,19 @@ struct WarpRegion {
     var kind: Int32 = 0
     var weight: Float = 0
     var padding: Float = 0
+}
+
+/// One aged-skin line. Mirrors `WrinkleLine` in `Shaders.metal`.
+///
+/// Drawn rather than textured, because the alternative does not work: a face
+/// texture can only alpha-blend in RealityKit, which reads as paint. Multiply
+/// is what makes a crease darken real skin while keeping the subject's own
+/// tone, and multiply is only available where we own the pixels — this pass.
+struct WrinkleLine {
+    var start = SIMD2<Float>.zero
+    var end = SIMD2<Float>.zero
+    var width: Float = 0
+    var strength: Float = 0
 }
 
 /// Mirrors `FaceUniforms` in `Shaders.metal`.
@@ -117,11 +134,12 @@ struct FaceUniforms {
     var aspect: Float = 0.5
     var tint: Float = 0
     var wrinkle: Float = 0
-    var padding: Float = 0
+    var wrinkleCount: Int32 = 0
 }
 
 extension FaceUniforms {
     /// How many regions the shader will read. Fixed so the buffer is a constant
     /// size and never needs reallocating on the render thread.
     static let maximumRegions = 8
+    static let maximumWrinkles = 20
 }

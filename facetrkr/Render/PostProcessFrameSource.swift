@@ -34,6 +34,7 @@ final class PostProcessFrameSource: @unchecked Sendable {
     private struct State {
         var uniforms = FaceUniforms()
         var regions = [WarpRegion](repeating: WarpRegion(), count: FaceUniforms.maximumRegions)
+        var wrinkles = [WrinkleLine](repeating: WrinkleLine(), count: FaceUniforms.maximumWrinkles)
         var isRecording = false
         var minimumFrameInterval: Double = 1.0 / 60.0
     }
@@ -88,11 +89,21 @@ final class PostProcessFrameSource: @unchecked Sendable {
     ///
     /// Regions arrive already projected and weighted, because the work is done
     /// on ARKit's delegate queue and the render thread contends for this lock.
-    func setWarp(regions: [WarpRegion], hullCentre: SIMD2<Float>, hullRadius: Float) {
-        let clamped = min(regions.count, FaceUniforms.maximumRegions)
+    func setWarp(
+        regions: [WarpRegion],
+        wrinkles: [WrinkleLine],
+        wrinkleStrength: Float,
+        hullCentre: SIMD2<Float>,
+        hullRadius: Float
+    ) {
+        let regionCount = min(regions.count, FaceUniforms.maximumRegions)
+        let wrinkleCount = min(wrinkles.count, FaceUniforms.maximumWrinkles)
         state.withLock {
-            for index in 0..<clamped { $0.regions[index] = regions[index] }
-            $0.uniforms.regionCount = Int32(clamped)
+            for index in 0..<regionCount { $0.regions[index] = regions[index] }
+            for index in 0..<wrinkleCount { $0.wrinkles[index] = wrinkles[index] }
+            $0.uniforms.regionCount = Int32(regionCount)
+            $0.uniforms.wrinkleCount = Int32(wrinkleCount)
+            $0.uniforms.wrinkle = wrinkleStrength
             $0.uniforms.hullCentre = hullCentre
             $0.uniforms.hullRadius = hullRadius
         }
@@ -101,7 +112,10 @@ final class PostProcessFrameSource: @unchecked Sendable {
     /// Drops the warp when tracking is lost, so the last frame's distortion
     /// does not stay frozen on screen.
     func clearWarp() {
-        state.withLock { $0.uniforms.regionCount = 0 }
+        state.withLock {
+            $0.uniforms.regionCount = 0
+            $0.uniforms.wrinkleCount = 0
+        }
     }
 
     func setRecording(_ recording: Bool) {
@@ -133,6 +147,7 @@ final class PostProcessFrameSource: @unchecked Sendable {
         guard let encoder = context.commandBuffer.makeComputeCommandEncoder() else { return }
         var uniforms = current.uniforms
         var regions = current.regions
+        var wrinkles = current.wrinkles
         encoder.setComputePipelineState(compositePipeline)
         encoder.setTexture(context.sourceColorTexture, index: 0)
         encoder.setTexture(targetTexture, index: 1)
@@ -142,6 +157,11 @@ final class PostProcessFrameSource: @unchecked Sendable {
             &regions,
             length: MemoryLayout<WarpRegion>.stride * FaceUniforms.maximumRegions,
             index: 1
+        )
+        encoder.setBytes(
+            &wrinkles,
+            length: MemoryLayout<WrinkleLine>.stride * FaceUniforms.maximumWrinkles,
+            index: 2
         )
         dispatch(
             encoder,

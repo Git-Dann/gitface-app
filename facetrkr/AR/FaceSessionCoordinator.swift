@@ -304,15 +304,107 @@ final class FaceSessionCoordinator: NSObject, ARSessionDelegate, FaceSessionCont
             )
         }
 
+        let wrinkles = style.wrinkles > 0
+            ? Self.creases(
+                leftEye: leftEye,
+                rightEye: rightEye,
+                eyeMid: eyeMid,
+                eyeSpan: eyeSpan,
+                span: span,
+                project: project
+              )
+            : []
+
         // Everything is computed before the lock is taken: this runs 60 times a
         // second and the render thread contends for the same lock.
         frameSource.withLock {
             $0?.setWarp(
                 regions: Array(regions),
+                wrinkles: wrinkles,
+                wrinkleStrength: style.wrinkles,
                 hullCentre: centreScreen,
                 hullRadius: span * 1.6
             )
         }
+    }
+
+    /// The creases of an ageing face, laid out in face-anchor space and
+    /// projected like everything else.
+    ///
+    /// Only the four that actually carry the read: crow's feet, nasolabial
+    /// folds from the nose to the mouth corners, forehead lines, and a crease
+    /// under each eye. Drawing more does not look older, it looks scribbled.
+    nonisolated private static func creases(
+        leftEye: SIMD3<Float>,
+        rightEye: SIMD3<Float>,
+        eyeMid: SIMD3<Float>,
+        eyeSpan: Float,
+        span: Float,
+        project: (SIMD3<Float>) -> SIMD2<Float>
+    ) -> [WrinkleLine] {
+        var lines: [WrinkleLine] = []
+
+        func line(_ a: SIMD3<Float>, _ b: SIMD3<Float>, width: Float, strength: Float) {
+            lines.append(
+                WrinkleLine(
+                    start: project(a),
+                    end: project(b),
+                    width: width * span,
+                    strength: strength
+                )
+            )
+        }
+
+        func offset(_ x: Float, _ y: Float, _ z: Float) -> SIMD3<Float> {
+            eyeMid + SIMD3(x, y, z) * eyeSpan
+        }
+
+        for eye in [leftEye, rightEye] {
+            let outward = simd_normalize(eye - eyeMid)
+            let corner = eye + outward * (eyeSpan * 0.42)
+
+            // Crow's feet, fanning back from the outer corner.
+            for (index, rise) in [Float(0.18), 0.0, -0.18].enumerated() {
+                let length = eyeSpan * (0.26 - Float(index) * 0.03)
+                line(
+                    corner + SIMD3(0, 0, 0.02) * eyeSpan,
+                    corner + outward * length + SIMD3(0, rise, 0) * eyeSpan,
+                    width: 0.030,
+                    strength: 0.7
+                )
+            }
+
+            // Under-eye crease.
+            line(
+                eye + SIMD3(0, -0.34, 0.06) * eyeSpan - outward * (eyeSpan * 0.22),
+                eye + SIMD3(0, -0.30, 0.06) * eyeSpan + outward * (eyeSpan * 0.28),
+                width: 0.034,
+                strength: 0.55
+            )
+
+            // Nasolabial fold: beside the nose, curving out to the mouth corner.
+            let side = outward * eyeSpan
+            line(
+                offset(0, -0.70, 0.42) + side * 0.24,
+                offset(0, -1.22, 0.34) + side * 0.46,
+                width: 0.042,
+                strength: 0.85
+            )
+        }
+
+        // Forehead lines.
+        for index in 0..<3 {
+            let height = 0.62 + Float(index) * 0.22
+            let width = 0.78 - Float(index) * 0.08
+            line(
+                offset(-width, height, 0.20),
+                offset(width, height, 0.20),
+                width: 0.034,
+                strength: 0.5 - Float(index) * 0.08
+            )
+        }
+
+        return lines
     }
 
     nonisolated func session(_ session: ARSession, didUpdate anchors: [ARAnchor]) {

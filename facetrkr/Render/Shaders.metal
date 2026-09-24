@@ -10,6 +10,14 @@ struct WarpRegion {
     float  padding;
 };
 
+/// Mirrors `WrinkleLine` in FaceUniforms.swift.
+struct WrinkleLine {
+    float2 start;
+    float2 end;
+    float  width;
+    float  strength;
+};
+
 /// Mirrors `FaceUniforms` in FaceUniforms.swift.
 struct FaceUniforms {
     float2 hullCentre;
@@ -18,7 +26,7 @@ struct FaceUniforms {
     float  aspect;
     float  tint;
     float  wrinkle;
-    float  padding;
+    int    wrinkleCount;
 };
 
 /// Matching `WarpKind`.
@@ -112,6 +120,33 @@ inline float faceHull(float2 uv, constant FaceUniforms &u) {
     return 1.0f - smoothstep(u.hullRadius * 0.80f, u.hullRadius * 1.20f, dist);
 }
 
+/// How dark this pixel should go from the aged-skin lines.
+///
+/// Each line is a capsule: distance to the segment, softened, taking the
+/// strongest rather than summing so crossing creases do not turn into a blob.
+inline float wrinkleShade(float2 uv,
+                          constant WrinkleLine *lines,
+                          int count,
+                          float aspect) {
+    float shade = 0.0f;
+    for (int i = 0; i < count; ++i) {
+        float2 toStart = (uv - lines[i].start) * float2(aspect, 1.0f);
+        float2 segment = (lines[i].end - lines[i].start) * float2(aspect, 1.0f);
+        float lengthSquared = max(dot(segment, segment), 1e-8f);
+        float t = clamp(dot(toStart, segment) / lengthSquared, 0.0f, 1.0f);
+        float distance = length(toStart - segment * t);
+
+        float width = lines[i].width;
+        if (width > 0.0f && distance < width) {
+            float falloff = 1.0f - distance / width;
+            // Fades at both ends so a crease tapers rather than stopping dead.
+            float taper = smoothstep(0.0f, 0.22f, t) * smoothstep(0.0f, 0.22f, 1.0f - t);
+            shade = max(shade, falloff * falloff * taper * lines[i].strength);
+        }
+    }
+    return shade;
+}
+
 /// Composites the finished frame to screen, applying the warp, and optionally
 /// to a copy the recorder downscales from.
 ///
@@ -122,6 +157,7 @@ kernel void composite(texture2d<half, access::sample> source   [[texture(0)]],
                       texture2d<half, access::write>  work     [[texture(2)]],
                       constant FaceUniforms &uniforms          [[buffer(0)]],
                       constant WarpRegion *regions             [[buffer(1)]],
+                      constant WrinkleLine *wrinkles           [[buffer(2)]],
                       uint2 gid [[thread_position_in_grid]])
 {
     const uint width = target.get_width();
@@ -143,9 +179,19 @@ kernel void composite(texture2d<half, access::sample> source   [[texture(0)]],
     for (int i = 0; i < uniforms.regionCount; ++i) {
         warped = applyRegion(warped, regions[i], uniforms.aspect);
     }
-    uv = mix(uv, warped, faceHull(uv, uniforms));
+    float hull = faceHull(uv, uniforms);
+    uv = mix(uv, warped, hull);
 
     half4 color = source.sample(frameSampler, uv);
+
+    // Creases multiply the camera rather than painting over it, so they darken
+    // the real skin and keep its tone and lighting. Sampled at the warped
+    // coordinate so the lines travel with the distortion rather than sliding
+    // across it, and masked by the hull so none of it lands off the face.
+    if (uniforms.wrinkle > 0.0f && uniforms.wrinkleCount > 0) {
+        float shade = wrinkleShade(uv, wrinkles, uniforms.wrinkleCount, uniforms.aspect);
+        color.rgb *= half3(1.0f - shade * uniforms.wrinkle * hull);
+    }
 
     // M1 spike: killing green and blue makes everything this kernel touches
     // read as red, which is how we tell whether `source` carries the camera
