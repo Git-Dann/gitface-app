@@ -33,6 +33,9 @@ enum ProceduralTexture {
         /// White mesh with the pink barrel showing through the holes, which is
         /// what the reference photograph shows.
         case rollerBase
+        /// Fine strands running along the hair, so a mass of it reads as combed
+        /// rather than as smooth plastic.
+        case hairNormal
 
         /// Big enough for the perforations to survive mipmapping at arm's
         /// length, small enough that building them is not felt at launch.
@@ -60,13 +63,15 @@ enum ProceduralTexture {
             (
                 normal: normalMapPixels(size: size, strength: 2.4, height: rollerHeight),
                 roughness: scalarMapPixels(size: size, value: rollerRoughness),
-                base: colourMapPixels(size: size, colour: rollerBaseColour)
+                base: colourMapPixels(size: size, colour: rollerBaseColour),
+                hair: normalMapPixels(size: size, strength: 1.6, height: hairHeight)
             )
         }.value
 
         await store(built.normal, as: .rollerNormal, semantic: .normal)
         await store(built.roughness, as: .rollerRoughness, semantic: .raw)
         await store(built.base, as: .rollerBase, semantic: .color)
+        await store(built.hair, as: .hairNormal, semantic: .normal)
     }
 
     private static func store(
@@ -131,6 +136,32 @@ enum ProceduralTexture {
         let pink = SIMD3<Float>(0.72, 0.13, 0.38)
         let white = SIMD3<Float>(0.97, 0.95, 0.95)
         return pink + (white - pink) * web
+    }
+
+    /// Strands running along v, at mixed widths and depths.
+    ///
+    /// `anisotropyLevel` is already set on the hair material, and it is what
+    /// makes a strand catch a band of light along its length rather than a
+    /// round highlight — but it needs a surface direction to work with, and a
+    /// smooth ellipsoid has none. This supplies it.
+    ///
+    /// Three octaves of ridges at incommensurate frequencies, so no repeat is
+    /// visible across the scalp, plus a slow wave along the strand so they do
+    /// not read as machined grooves.
+    nonisolated static func hairHeight(_ u: Float, _ v: Float) -> Float {
+        let drift = sin(v * .pi * 2) * 0.012
+        var height: Float = 0
+
+        for (frequency, weight) in [(Float(47), Float(0.5)),
+                                    (Float(83), 0.3),
+                                    (Float(131), 0.2)] {
+            let phase = (u + drift) * frequency * .pi * 2
+            // Squared cosine: rounded ridges with flat gaps, which is closer to
+            // a strand than a plain sine.
+            let ridge = 0.5 + 0.5 * cos(phase)
+            height += ridge * ridge * weight
+        }
+        return height
     }
 
     // MARK: - Map building

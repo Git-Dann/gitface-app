@@ -46,35 +46,33 @@ enum ProceduralMasks {
     /// where an eye span is the 0.066 m between `FaceLandmark.eye(.left)` and
     /// `.eye(.right)`, rather than guessed.
     ///
-    /// The supplied wig contributes its loose hair only. Its sleeves are
-    /// modelled around 0.081 m rollers against the 0.038 m the photograph
-    /// shows, so at the right size they hang off both ends; the converter drops
-    /// them. What is left — the cap, the fringe and the side curtains — sits
-    /// either side of the crown, which is exactly where the rollers go. Without
-    /// it the lens reads as rollers stuck on your own hair rather than grey
-    /// hair in rollers.
+    /// The hair is built rather than loaded. The supplied wig is a wig — a cap
+    /// with side curtains — and the photograph is hair *set* in rollers as one
+    /// object; see `RollerHair` for why the two cannot be reconciled.
     static func grandma() -> Entity {
         let root = Entity()
-        root.addChild(wig())
-        root.addChild(curlerCrown())
+        let hair = hairMaterial()
+        if let scalp = RollerHair.scalp(material: hair) { root.addChild(scalp) }
+        root.addChild(curlerCrown(hair: hair))
+        root.addChild(RollerHair.wisps(material: hair))
         root.addChild(readingGlasses())
         return root
     }
 
-    /// The wig's loose hair, one entity per material group.
-    private static func wig() -> Entity {
-        let root = Entity()
-        for group in WigMesh.groups() {
-            var material = PhysicallyBasedMaterial()
-            material.baseColor = .init(tint: group.baseColour, texture: nil)
-            material.roughness = .init(floatLiteral: group.roughness)
-            material.metallic = .init(floatLiteral: group.metallic)
-            // Hair catches a band of light along the strand rather than a round
-            // highlight. Without this the strands read as grey plastic tubes.
-            material.anisotropyLevel = .init(floatLiteral: 0.8)
-            root.addChild(.shaped(group.mesh, material: material))
+    /// Grey hair, with strand direction from a generated normal map.
+    ///
+    /// `anisotropyLevel` is what makes hair catch a band of light along the
+    /// strand rather than a round highlight, and it needs that map to have any
+    /// direction to work along.
+    private static func hairMaterial() -> RealityKit.Material {
+        var material = PhysicallyBasedMaterial()
+        material.baseColor = .init(tint: Shade.hair, texture: nil)
+        material.roughness = .init(floatLiteral: 0.62)
+        material.anisotropyLevel = .init(floatLiteral: 0.85)
+        if let normal = ProceduralTexture.resource(.hairNormal) {
+            material.normal = .init(texture: .init(normal))
         }
-        return root
+        return material
     }
 
     /// The crown of rollers.
@@ -92,47 +90,31 @@ enum ProceduralMasks {
     /// through, carried by generated normal, roughness and base colour maps.
     /// That surface detail is the whole difference between a roller and a
     /// cylinder.
-    private static func curlerCrown() -> Entity {
+    private static func curlerCrown(hair: RealityKit.Material) -> Entity {
         let root = Entity()
 
-        let count = 11
-        // A horseshoe over the head, not a closed ring. Taken round to 2.40 the
-        // lowest rollers landed inside the face at ear height; the photograph
-        // has them clear of the cheeks, so the ellipse is wider and the arc
-        // stops short of the ears.
-        let arc: Float = 2.05          // radians either side of the crown
         let drum = rollerMaterial()
         let rim = plasticMaterial(Shade.rollerBand, roughness: 0.35)
-        let wound = plasticMaterial(Shade.hair, roughness: 0.92)
 
-        // Measured: 0.58 x 0.46 eye-spans, at 0.066 m to the eye span.
-        let length: Float = 0.0383
-        let radius: Float = 0.0152
-        let rimRadius = radius * 1.12
-        let rimLength: Float = 0.0042
+        let length = RollerHair.barrelLength
+        let radius = RollerHair.barrelRadius
+        let rimRadius = RollerHair.rimRadius
+        let rimLength = RollerHair.rimLength
 
         let barrelMesh = CylinderMesh.generate(length: length, radius: radius, capped: false)
         let rimMesh = CylinderMesh.generate(length: rimLength, radius: rimRadius, segments: 20)
-        let hairMesh = CylinderMesh.generate(
-            length: length * 0.58,
-            radius: radius * 1.16,
-            segments: 20,
+        let sleeveMesh = CylinderMesh.generate(
+            length: RollerHair.sleeveLength,
+            radius: RollerHair.sleeveRadius,
+            segments: 22,
             capped: false
         )
 
-        for index in 0..<count {
-            let t = Float(index) / Float(count - 1)
-            let angle = -arc + arc * 2 * t
+        for index in 0..<RollerHair.count {
+            let (position, angle) = RollerHair.placement(index)
 
             let roller = Entity()
-            roller.position = [
-                // Wider than the head: the temple is at 0.068 and these sit
-                // outside it, as hair in rollers does.
-                sin(angle) * 0.105,
-                0.072 + cos(angle) * 0.062,
-                // The ones down the sides sit further back, following the skull.
-                0.012 - (1 - cos(angle)) * 0.016
-            ]
+            roller.position = position
             // Tangent to the arc, so a roller lies flat over the forehead and
             // stands upright beside the ear.
             roller.orientation = simd_quatf(angle: angle, axis: [0, 0, 1])
@@ -145,8 +127,9 @@ enum ProceduralMasks {
                     at: [(length / 2 + rimLength / 2) * end, 0, 0]
                 ))
             }
-            // Hair wound over the middle, proud of the drum.
-            roller.addChild(.shaped(hairMesh, material: wound))
+            // Hair wound thickly over the drum, which is what leaves the roller
+            // reading as grey hair with the rims peeking out.
+            roller.addChild(.shaped(sleeveMesh, material: hair))
 
             root.addChild(roller)
         }
