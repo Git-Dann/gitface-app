@@ -16,6 +16,7 @@ enum FaceOcclusion {
     /// gain: the head's silhouette barely changes with expression, and this
     /// mesh is never seen, only used for depth. It still rides the anchor
     /// transform, so it tracks head movement exactly.
+    @MainActor
     static func makeEntity(from geometry: ARFaceGeometry) -> ModelEntity? {
         guard let mesh = makeMesh(from: geometry) else { return nil }
         let entity = ModelEntity(mesh: mesh, materials: [OcclusionMaterial()])
@@ -23,6 +24,7 @@ enum FaceOcclusion {
         return entity
     }
 
+    @MainActor
     private static func makeMesh(from geometry: ARFaceGeometry) -> MeshResource? {
         var descriptor = MeshDescriptor(name: "faceOcclusion")
         descriptor.positions = MeshBuffers.Positions(geometry.vertices)

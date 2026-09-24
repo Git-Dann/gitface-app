@@ -70,7 +70,12 @@ final class FaceSessionCoordinator: NSObject, ARSessionDelegate, FaceSessionCont
         arView.renderOptions.insert(.disableDepthOfField)
 
         installAnchor(in: arView)
-        frameSource.withLock { $0 = PostProcessFrameSource(arView: arView, recorder: recorder) }
+        // Built before the lock is taken. The initialiser is main-actor
+        // isolated (it assigns renderCallbacks) and `attach` is already there,
+        // but a `withLock` closure is nonisolated, so constructing inside it
+        // would be calling across actors. Shorter critical section either way.
+        let source = PostProcessFrameSource(arView: arView, recorder: recorder)
+        frameSource.withLock { $0 = source }
 
         run(on: arView.session)
         state.update(to: .searching)
