@@ -77,7 +77,10 @@ enum RollerHair {
             // wig goes over a head. Checked numerically: every kept vertex is
             // outside an ellipsoid fitted to FaceLandmark's crown, temple and
             // ear.
-            radii: SIMD3(0.089, 0.092, 0.096),
+            // Wide enough that grey shows beside the head rather than only as
+            // a rim: 15 mm of it at eye height, against 10 mm when this was
+            // first solved. Pushed further the rollers stop standing proud.
+            radii: SIMD3(0.094, 0.094, 0.098),
             centre: SIMD3(0, 0.044, -0.014),
             keep: { point in point.z <= frontLimit && point.y >= hairline(at: point.z) }
         ) else { return nil }

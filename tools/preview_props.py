@@ -30,7 +30,7 @@ BARREL_LENGTH, BARREL_RADIUS = 0.0383, 0.0152
 RIM_RADIUS, RIM_LENGTH = BARREL_RADIUS * 1.12, 0.0042
 SLEEVE_RADIUS, SLEEVE_LENGTH = BARREL_RADIUS * 1.45, BARREL_LENGTH * 0.80
 
-SCALP_RADII = np.float32([0.089, 0.092, 0.096])
+SCALP_RADII = np.float32([0.094, 0.094, 0.098])
 SCALP_CENTRE = np.float32([0.0, 0.044, -0.014])
 FRONT_LIMIT = 0.040
 HAIRLINE_FRONT = (0.040, 0.098)
@@ -141,13 +141,14 @@ def lens_geometry():
              -0.030 + jitter * 0.022),
             np.float32([[c, -s, 0], [s, c, 0], [0, 0, 1]]))
 
-    width, height, bar = 0.052, 0.055, 0.0055
+    width, height, bar, brow = 0.052, 0.058, 0.0052, 0.0082
     for side in (-1, 1):
         cx, cy, cz = side * 0.039, 0.024, 0.062
         for v in (-1, 1):
-            add(cuboid(width, bar, 0.007), FRAME, (cx, cy + height / 2 * v, cz))
+            t = brow if v > 0 else bar
+            add(cuboid(width, t, 0.008), FRAME, (cx, cy + (height - t) / 2 * v, cz))
         for h in (-1, 1):
-            add(cuboid(bar, height, 0.007), FRAME, (cx + width / 2 * h, cy, cz))
+            add(cuboid(bar, height, 0.008), FRAME, (cx + (width - bar) / 2 * h, cy, cz))
         add(cuboid(0.005, 0.005, 0.068), FRAME, (cx + 0.028 * side, cy + 0.012, cz - 0.034))
     add(cuboid(0.020, 0.005, 0.006), FRAME, (0, 0.013, 0.062))
 

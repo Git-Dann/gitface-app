@@ -186,26 +186,33 @@ enum ProceduralMasks {
 
             // Four bars per lens rather than a solid plate, so the frame reads
             // as a rim with the eye visible through it.
+            // Measured off the photograph: the frames span 1.94 eye-spans
+            // across and 0.88 down, centred 0.024 above eye height, which is
+            // where these already sat. Only the height and the brow bar were
+            // out.
             let width: Float = 0.052
-            // 0.87 eye-spans in the photograph, where these were 0.63. The
-            // frames reach from above the brow to below the nose base, which
-            // is a large part of why the reference reads as reading glasses.
-            let height: Float = 0.055
-            let bar: Float = 0.0055
+            let height: Float = 0.058
+            let bar: Float = 0.0052
+            // Heavier across the top than anywhere else, as 1970s frames are.
+            // It is most of what separates them from wire spectacles.
+            let browBar: Float = 0.0082
 
             for vertical in [Float(-1), 1] {
+                let thickness = vertical > 0 ? browBar : bar
                 root.addChild(.part(
-                    .generateBox(width: width, height: bar, depth: 0.007, cornerRadius: 0.002),
+                    .generateBox(width: width, height: thickness, depth: 0.008,
+                                 cornerRadius: 0.0022),
                     color: Shade.frame,
-                    at: centre + [0, height / 2 * vertical, 0],
+                    at: centre + [0, (height - thickness) / 2 * vertical, 0],
                     roughness: 0.3
                 ))
             }
             for horizontal in [Float(-1), 1] {
                 root.addChild(.part(
-                    .generateBox(width: bar, height: height, depth: 0.007, cornerRadius: 0.002),
+                    .generateBox(width: bar, height: height, depth: 0.008,
+                                 cornerRadius: 0.0022),
                     color: Shade.frame,
-                    at: centre + [width / 2 * horizontal, 0, 0],
+                    at: centre + [(width - bar) / 2 * horizontal, 0, 0],
                     roughness: 0.3
                 ))
             }
