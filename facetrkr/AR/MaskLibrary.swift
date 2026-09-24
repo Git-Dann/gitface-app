@@ -129,6 +129,26 @@ extension Entity {
         return entity
     }
 
+    /// A part with a material built by the caller.
+    ///
+    /// `part` covers the common case of a flat colour, which is all the
+    /// original seventeen masks need. This is for the props that carry
+    /// generated texture maps, where the material is assembled rather than
+    /// described by one colour and one roughness.
+    static func shaped(
+        _ mesh: MeshResource,
+        material: RealityKit.Material,
+        at position: SIMD3<Float> = .zero,
+        rotation: simd_quatf = simd_quatf(angle: 0, axis: [0, 1, 0]),
+        scale: SIMD3<Float> = .one
+    ) -> ModelEntity {
+        let entity = ModelEntity(mesh: mesh, materials: [material])
+        entity.position = position
+        entity.orientation = rotation
+        entity.scale = scale
+        return entity
+    }
+
     /// Builds the same part on both sides of the face.
     ///
     /// Most props are symmetrical, and writing the loop out each time buried

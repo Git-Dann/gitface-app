@@ -79,17 +79,37 @@ enum ProceduralMasks {
     /// Curlers around the hairline.
     ///
     /// Placed around an arc rather than built as a ring, because RealityKit has
-    /// no torus primitive. Each is a cylinder lying on its side with a pink
-    /// band at each end, which is the whole read at this size.
+    /// no torus primitive.
+    ///
+    /// The first version was three plain cylinders in a flat colour, which is
+    /// why they read as featureless plastic: nothing on the surface for light
+    /// to catch. A real roller is a perforated drum with flanged ends, a wire
+    /// clip across it, and hair wound through the holes. All of that is here
+    /// now — the perforations as a generated normal map, the plastic-against-
+    /// holes contrast as a roughness map, the rest as geometry.
+    ///
+    /// Sizes and colours vary across the crown because a real set does: larger
+    /// rollers on top for lift, smaller ones at the temples.
     private static func curlerCrown() -> Entity {
         let root = Entity()
         let count = 9
         let arc: Float = .pi * 1.15
         let radius: Float = 0.098
 
+        let drum = rollerMaterial()
+        let flange = plasticMaterial(Shade.rollerBand, roughness: 0.35)
+        let wound = plasticMaterial(Shade.hair, roughness: 0.92)
+        let wire = plasticMaterial(Shade.steel, roughness: 0.25, metallic: true)
+
         for index in 0..<count {
             let t = Float(index) / Float(count - 1)
             let angle = -arc / 2 + arc * t
+
+            // Fattest at the crown, tapering to the temples. `t` runs 0-1
+            // across the arc, so this is a shallow arch about its middle.
+            let scale = 0.82 + 0.18 * sin(t * .pi)
+            let drumRadius = 0.019 * scale
+            let drumLength = 0.042 * scale
 
             let curler = Entity()
             curler.position = FaceLandmark.crown + [
@@ -101,34 +121,91 @@ enum ProceduralMasks {
             // of rollers rather than a row of loose cylinders.
             curler.orientation = simd_quatf(angle: angle, axis: [0, 0, 1])
 
-            curler.addChild(.part(
-                .generateCylinder(height: 0.042, radius: 0.019),
-                color: Shade.roller,
-                at: .zero,
-                rotation: simd_quatf(angle: .pi / 2, axis: [0, 0, 1]),
-                roughness: 0.55
+            // The drum. Caps are left off because the flanges cover them.
+            curler.addChild(.shaped(
+                CylinderMesh.generate(
+                    length: drumLength,
+                    radius: drumRadius,
+                    capped: false
+                ),
+                material: drum
             ))
+
+            // Flanged ends, slightly proud of the drum.
             for end in [Float(-1), 1] {
-                curler.addChild(.part(
-                    .generateCylinder(height: 0.009, radius: 0.0205),
-                    color: Shade.rollerBand,
-                    at: [0.017 * end, 0, 0],
-                    rotation: simd_quatf(angle: .pi / 2, axis: [0, 0, 1]),
-                    roughness: 0.45
+                curler.addChild(.shaped(
+                    CylinderMesh.generate(
+                        length: drumLength * 0.13,
+                        radius: drumRadius * 1.12,
+                        segments: 20
+                    ),
+                    material: flange,
+                    at: [drumLength * 0.46 * end, 0, 0]
                 ))
             }
-            // Hair wound over the roller.
-            curler.addChild(.part(
-                .generateCylinder(height: 0.020, radius: 0.0215),
-                color: Shade.hair,
-                at: .zero,
-                rotation: simd_quatf(angle: .pi / 2, axis: [0, 0, 1]),
-                roughness: 0.9
+
+            // Hair wound over the middle, sitting just above the plastic.
+            curler.addChild(.shaped(
+                CylinderMesh.generate(
+                    length: drumLength * 0.52,
+                    radius: drumRadius * 1.06,
+                    segments: 20,
+                    capped: false
+                ),
+                material: wound
+            ))
+
+            // The retaining wire, across the drum and over the top.
+            curler.addChild(.shaped(
+                CylinderMesh.generate(
+                    length: drumLength * 1.08,
+                    radius: 0.0012,
+                    segments: 8
+                ),
+                material: wire,
+                at: [0, drumRadius * 1.18, 0]
             ))
 
             root.addChild(curler)
         }
         return root
+    }
+
+    /// The perforated drum: generated normal and roughness maps over a pale
+    /// plastic base.
+    ///
+    /// Falls back to the flat material when the texture cache is still cold,
+    /// which it is for the first moment after launch.
+    private static func rollerMaterial() -> RealityKit.Material {
+        guard let normal = ProceduralTexture.resource(.rollerNormal),
+              let roughness = ProceduralTexture.resource(.rollerRoughness)
+        else {
+            return SimpleMaterial(color: Shade.roller, roughness: 0.5, isMetallic: false)
+        }
+
+        var material = PhysicallyBasedMaterial()
+        material.baseColor = .init(tint: Shade.roller, texture: nil)
+        material.normal = .init(texture: .init(normal))
+        // Scale 1 so the map is taken as written: it already spans glossy
+        // plastic to matte hole.
+        material.roughness = .init(scale: 1, texture: .init(roughness))
+        // Moulded plastic has a thin specular sheen over its diffuse colour,
+        // and it is what separates the drum from the matte hair beside it.
+        material.clearcoat = .init(floatLiteral: 0.35)
+        material.clearcoatRoughness = .init(floatLiteral: 0.25)
+        return material
+    }
+
+    private static func plasticMaterial(
+        _ color: UIColor,
+        roughness: Float,
+        metallic: Bool = false
+    ) -> RealityKit.Material {
+        var material = PhysicallyBasedMaterial()
+        material.baseColor = .init(tint: color, texture: nil)
+        material.roughness = .init(floatLiteral: roughness)
+        material.metallic = .init(floatLiteral: metallic ? 1 : 0)
+        return material
     }
 
     /// Heavy square frames. The reference pair are wide, thick and sit low.

@@ -19,6 +19,14 @@ struct ContentView: View {
             overlay
         }
         .task { state.startThermalTracking() }
+        // Texture generation is async because `TextureResource` only offers
+        // async constructors. A mask built before this lands gets the flat
+        // material, so the current one is rebuilt once the cache is warm
+        // rather than leaving the first-selected lens looking untextured.
+        .task {
+            await ProceduralTexture.warm()
+            state.reapplyMask()
+        }
         .alert(
             "Something went wrong",
             isPresented: Binding(

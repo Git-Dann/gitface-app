@@ -74,6 +74,14 @@ final class FaceTrackingState: ObservableObject {
         didSet { controller?.setTintEnabled(isTintSpikeEnabled) }
     }
 
+    /// Rebuilds the selected mask in place.
+    ///
+    /// Only needed when something the builders read has changed underneath
+    /// them — today that is the procedural texture cache finishing.
+    func reapplyMask() {
+        controller?.applyMask(selectedMask)
+    }
+
     /// Live multipliers over the baked-in lens values, driven by the debug
     /// panel. Judging "old enough" needs a real face in front of the camera,
     /// so the numbers are dialled in here and read back rather than guessed a
