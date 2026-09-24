@@ -36,24 +36,72 @@ enum WigMesh {
         let metallic: Float
     }
 
-    private static var cached: [Group]?
-
-    /// Parsed once and held: it is a couple of megabytes and the carousel can
-    /// select the lens repeatedly.
-    static func groups() -> [Group] {
-        if let cached { return cached }
-        let parsed = load()
-        cached = parsed
-        return parsed
+    /// One group as it comes off disk, before RealityKit sees it.
+    ///
+    /// Split out because `MeshResource.generate(from:)` is main-actor isolated
+    /// but the parsing is not, and the parsing is nearly all of the cost:
+    /// 3.6 MB of little-endian floats turned into vertex arrays. This part runs
+    /// off the main actor and is `Sendable` so it can cross back.
+    private struct Parsed: Sendable {
+        var positions: [SIMD3<Float>]
+        var normals: [SIMD3<Float>]
+        var indices: [UInt32]
+        var baseColour: SIMD3<Float>
+        var roughness: Float
+        var metallic: Float
     }
 
-    private static func load() -> [Group] {
+    private static var cached: [Group] = []
+
+    static var isWarm: Bool { !cached.isEmpty }
+
+    /// The groups, or empty until `warm()` has run.
+    ///
+    /// Deliberately not parse-on-demand. `Mask.build` is synchronous and the
+    /// carousel calls it between frames, so doing 146,000 triangles' worth of
+    /// work there would drop a visible number of them.
+    static func groups() -> [Group] { cached }
+
+    /// Parses off the main actor, then builds the meshes on it.
+    static func warm() async {
+        guard cached.isEmpty else { return }
         guard let asset = NSDataAsset(name: "Wig") else {
             print("[facetrkr] wig asset missing")
-            return []
+            return
         }
 
         let data = asset.data
+        let parsed = await Task.detached(priority: .userInitiated) {
+            load(data)
+        }.value
+
+        cached = parsed.compactMap { group in
+            var descriptor = MeshDescriptor(name: "wig")
+            descriptor.positions = MeshBuffer(group.positions)
+            descriptor.normals = MeshBuffer(group.normals)
+            descriptor.primitives = .triangles(group.indices)
+
+            guard let mesh = try? MeshResource.generate(from: [descriptor]) else { return nil }
+
+            // glTF stores base colour in linear light, but UIColor components
+            // are sRGB and RealityKit linearises them again on the way in.
+            // Passing the raw values straight through would square the colour
+            // and render silver hair as near-black.
+            return Group(
+                mesh: mesh,
+                baseColour: UIColor(
+                    red: CGFloat(encodeSRGB(group.baseColour.x)),
+                    green: CGFloat(encodeSRGB(group.baseColour.y)),
+                    blue: CGFloat(encodeSRGB(group.baseColour.z)),
+                    alpha: 1
+                ),
+                roughness: group.roughness,
+                metallic: group.metallic
+            )
+        }
+    }
+
+    nonisolated private static func load(_ data: Data) -> [Parsed] {
         var cursor = 0
 
         func read<T>(_ type: T.Type, count: Int) -> [T]? {
@@ -85,7 +133,7 @@ enum WigMesh {
             return []
         }
 
-        var groups: [Group] = []
+        var groups: [Parsed] = []
         for _ in 0..<Int(header[1]) {
             guard let colour = read(Float.self, count: 5),
                   let counts = read(UInt32.self, count: 2)
@@ -99,29 +147,17 @@ enum WigMesh {
                   let indices = read(UInt32.self, count: indexCount)
             else { break }
 
-            var descriptor = MeshDescriptor(name: "wig")
-            descriptor.positions = MeshBuffer(stride(from: 0, to: vertexCount * 3, by: 3).map {
-                SIMD3(rawPositions[$0], rawPositions[$0 + 1], rawPositions[$0 + 2])
-            })
-            descriptor.normals = MeshBuffer(stride(from: 0, to: vertexCount * 3, by: 3).map {
-                SIMD3(rawNormals[$0], rawNormals[$0 + 1], rawNormals[$0 + 2])
-            })
-            descriptor.primitives = .triangles(indices)
-
-            guard let mesh = try? MeshResource.generate(from: [descriptor]) else { continue }
-
-            // glTF stores base colour in linear light, but UIColor components
-            // are sRGB and RealityKit linearises them again on the way in.
-            // Passing the raw values straight through would square the colour
-            // and render silver hair as near-black.
-            groups.append(Group(
-                mesh: mesh,
-                baseColour: UIColor(
-                    red: CGFloat(encodeSRGB(colour[0])),
-                    green: CGFloat(encodeSRGB(colour[1])),
-                    blue: CGFloat(encodeSRGB(colour[2])),
-                    alpha: 1
-                ),
+            // SIMD3<Float> is sixteen bytes, not twelve, so the file's packed
+            // triples cannot be memcpy'd straight in.
+            groups.append(Parsed(
+                positions: stride(from: 0, to: vertexCount * 3, by: 3).map {
+                    SIMD3(rawPositions[$0], rawPositions[$0 + 1], rawPositions[$0 + 2])
+                },
+                normals: stride(from: 0, to: vertexCount * 3, by: 3).map {
+                    SIMD3(rawNormals[$0], rawNormals[$0 + 1], rawNormals[$0 + 2])
+                },
+                indices: indices,
+                baseColour: SIMD3(colour[0], colour[1], colour[2]),
                 roughness: colour[3],
                 metallic: colour[4]
             ))
@@ -132,7 +168,7 @@ enum WigMesh {
     /// Linear light to sRGB, the exact transfer function rather than a 1/2.2
     /// approximation — the difference shows in the dark end, which is most of
     /// where this wig's colours sit.
-    private static func encodeSRGB(_ value: Float) -> Float {
+    nonisolated private static func encodeSRGB(_ value: Float) -> Float {
         let c = min(max(value, 0), 1)
         return c <= 0.0031308 ? c * 12.92 : 1.055 * pow(c, 1 / 2.4) - 0.055
     }
