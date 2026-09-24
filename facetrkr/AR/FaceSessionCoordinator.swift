@@ -28,6 +28,7 @@ final class FaceSessionCoordinator: NSObject, ARSessionDelegate, FaceSessionCont
     private let frameSource = OSAllocatedUnfairLock<PostProcessFrameSource?>(uncheckedState: nil)
     private let warpStyle = OSAllocatedUnfairLock(initialState: WarpStyle.none)
     private let viewport = OSAllocatedUnfairLock(initialState: CGSize.zero)
+    private let tuning = OSAllocatedUnfairLock(initialState: LensTuning.neutral)
 
     /// Written from ARKit's delegate queue, so not plain stored properties.
     private let tracking = OSAllocatedUnfairLock(initialState: TrackingFlags())
@@ -177,6 +178,11 @@ final class FaceSessionCoordinator: NSObject, ARSessionDelegate, FaceSessionCont
     }
 
     @MainActor
+    func setTuning(_ value: LensTuning) {
+        tuning.withLock { $0 = value }
+    }
+
+    @MainActor
     func setViewportSize(_ size: CGSize) {
         viewport.withLock { $0 = size }
     }
@@ -248,6 +254,20 @@ final class FaceSessionCoordinator: NSObject, ARSessionDelegate, FaceSessionCont
         }
 
         let camera = frame.camera
+
+        // Screen positions are normalised to the viewport, which makes x and y
+        // different units: the frame is far taller than it is wide. The kernel
+        // corrects for that in `toLocal`, multiplying x by the drawable aspect
+        // so a radius describes a circle rather than an ellipse.
+        //
+        // Anything measured here and used there as a radius has to be corrected
+        // the same way. It was not, and since the eyes are separated almost
+        // entirely in x, every radius and crease width came out scaled by
+        // 1/aspect — a little over twice too large. That is what made the warp
+        // read as a soft smear over the whole face and the creases as grey
+        // smudges rather than lines, and why the face hull confined nothing.
+        let aspect = Float(size.width / size.height)
+
         func project(_ local: SIMD3<Float>) -> SIMD2<Float> {
             let world = face.transform * SIMD4<Float>(local.x, local.y, local.z, 1)
             let point = camera.projectPoint(
@@ -256,6 +276,12 @@ final class FaceSessionCoordinator: NSObject, ARSessionDelegate, FaceSessionCont
                 viewportSize: size
             )
             return SIMD2<Float>(Float(point.x / size.width), Float(point.y / size.height))
+        }
+
+        /// Distance in the same space the kernel measures in.
+        func screenDistance(_ a: SIMD2<Float>, _ b: SIMD2<Float>) -> Float {
+            let d = a - b
+            return simd_length(SIMD2<Float>(d.x * aspect, d.y))
         }
 
         func position(_ transform: simd_float4x4) -> SIMD3<Float> {
@@ -269,16 +295,36 @@ final class FaceSessionCoordinator: NSObject, ARSessionDelegate, FaceSessionCont
 
         // Offsets are taken from each eye outward rather than from a signed X
         // axis, so nothing here depends on which way the anchor's X points.
+        func outward(_ eye: SIMD3<Float>) -> SIMD3<Float> {
+            simd_normalize(eye - eyeMid)
+        }
+
         func cheek(of eye: SIMD3<Float>) -> SIMD3<Float> {
             eye + (eye - eyeMid) * 0.22 + SIMD3(0, -0.58, 0.26) * eyeSpan
+        }
+
+        /// Along the jaw, below and outside the mouth corner. Where a face
+        /// sags first, and the one shape that reads as age on its own.
+        func jowl(of eye: SIMD3<Float>) -> SIMD3<Float> {
+            eyeMid + outward(eye) * (eyeSpan * 0.80)
+                + SIMD3(0, -1.30, 0.10) * eyeSpan
+        }
+
+        func offset(_ x: Float, _ y: Float, _ z: Float) -> SIMD3<Float> {
+            eyeMid + SIMD3(x, y, z) * eyeSpan
         }
 
         let leftEyeScreen = project(leftEye)
         let rightEyeScreen = project(rightEye)
         let leftCheekScreen = project(cheek(of: leftEye))
         let rightCheekScreen = project(cheek(of: rightEye))
-        let mouthScreen = project(eyeMid + SIMD3(0, -1.15, 0.38) * eyeSpan)
-        let centreScreen = project(eyeMid + SIMD3(0, -0.40, 0.10) * eyeSpan)
+        let leftJowlScreen = project(jowl(of: leftEye))
+        let rightJowlScreen = project(jowl(of: rightEye))
+        let mouthScreen = project(offset(0, -1.15, 0.38))
+        let chinScreen = project(offset(0, -1.95, 0.20))
+        let noseScreen = project(offset(0, -0.45, 0.62))
+        let browScreen = project(offset(0, 0.52, 0.30))
+        let centreScreen = project(offset(0, -0.40, 0.10))
 
         func point(_ anchor: WarpAnchor) -> SIMD2<Float> {
             switch anchor {
@@ -286,25 +332,41 @@ final class FaceSessionCoordinator: NSObject, ARSessionDelegate, FaceSessionCont
             case .rightEye:   rightEyeScreen
             case .leftCheek:  leftCheekScreen
             case .rightCheek: rightCheekScreen
+            case .leftJowl:   leftJowlScreen
+            case .rightJowl:  rightJowlScreen
             case .mouth:      mouthScreen
+            case .chin:       chinScreen
+            case .noseTip:    noseScreen
+            case .brow:       browScreen
             case .faceCentre: centreScreen
             }
         }
 
         // The one measurement everything scales from.
-        let span = max(0.01, simd_distance(leftEyeScreen, rightEyeScreen))
+        let span = max(0.01, screenDistance(leftEyeScreen, rightEyeScreen))
         let jawOpen = face.blendShapes[.jawOpen]?.floatValue ?? 0
+        let tuning = self.tuning.withLock { $0 }
 
         let regions = style.specs.prefix(FaceUniforms.maximumRegions).map { spec in
-            WarpRegion(
+            let driven = spec.jawDriven ? spec.weight * (0.55 + 0.45 * jawOpen) : spec.weight
+            return WarpRegion(
                 centre: point(spec.anchor),
+                direction: spec.direction,
                 radius: spec.radius * span,
                 kind: spec.kind.rawValue,
-                weight: spec.jawDriven ? spec.weight * (0.55 + 0.45 * jawOpen) : spec.weight
+                weight: driven * tuning.warp
             )
         }
 
-        let wrinkles = style.wrinkles > 0
+        var skin = style.skin
+        skin.creases *= tuning.crease
+        skin.ridge *= tuning.ridge
+        skin.desaturate *= tuning.desaturate
+        skin.sallow *= tuning.desaturate
+        skin.blotch *= tuning.blotch
+        skin.browGrey *= tuning.browGrey
+
+        let wrinkles = skin.creases > 0
             ? Self.creases(
                 leftEye: leftEye,
                 rightEye: rightEye,
@@ -317,23 +379,35 @@ final class FaceSessionCoordinator: NSObject, ARSessionDelegate, FaceSessionCont
 
         // Everything is computed before the lock is taken: this runs 60 times a
         // second and the render thread contends for the same lock.
-        frameSource.withLock {
-            $0?.setWarp(
-                regions: Array(regions),
-                wrinkles: wrinkles,
-                wrinkleStrength: style.wrinkles,
-                hullCentre: centreScreen,
-                hullRadius: span * 1.6
-            )
-        }
+        //
+        // The hull has to clear the jaw now that it is measured correctly, or
+        // it clips the chin — the opposite of the defect it used to have.
+        let lens = FaceFrame(
+            regions: Array(regions),
+            wrinkles: wrinkles,
+            skin: skin,
+            hullCentre: centreScreen,
+            hullRadius: span * 2.0,
+            browLeft: project(leftEye + SIMD3(0, 0.42, 0.02) * eyeSpan),
+            browRight: project(rightEye + SIMD3(0, 0.42, 0.02) * eyeSpan),
+            browRadius: span * 0.52
+        )
+
+        frameSource.withLock { $0?.setWarp(lens) }
     }
 
     /// The creases of an ageing face, laid out in face-anchor space and
     /// projected like everything else.
     ///
-    /// Only the four that actually carry the read: crow's feet, nasolabial
-    /// folds from the nose to the mouth corners, forehead lines, and a crease
-    /// under each eye. Drawing more does not look older, it looks scribbled.
+    /// Crow's feet, nasolabial folds, forehead lines, a crease under each eye,
+    /// and the marionette lines from the mouth corners down past the chin,
+    /// which are what make a mouth look like it has been set that way for
+    /// decades. Drawing more than this does not look older, it looks scribbled.
+    ///
+    /// Widths are in corrected screen spans and are deliberately narrow. They
+    /// were set against a span that measured over twice too large, which is why
+    /// they came out as soft grey smudges instead of lines; a crease only reads
+    /// as skin when it is tight enough for its highlight to sit beside it.
     nonisolated private static func creases(
         leftEye: SIMD3<Float>,
         rightEye: SIMD3<Float>,
@@ -369,8 +443,8 @@ final class FaceSessionCoordinator: NSObject, ARSessionDelegate, FaceSessionCont
                 line(
                     corner + SIMD3(0, 0, 0.02) * eyeSpan,
                     corner + outward * length + SIMD3(0, rise, 0) * eyeSpan,
-                    width: 0.030,
-                    strength: 0.7
+                    width: 0.016,
+                    strength: 0.75
                 )
             }
 
@@ -378,8 +452,8 @@ final class FaceSessionCoordinator: NSObject, ARSessionDelegate, FaceSessionCont
             line(
                 eye + SIMD3(0, -0.34, 0.06) * eyeSpan - outward * (eyeSpan * 0.22),
                 eye + SIMD3(0, -0.30, 0.06) * eyeSpan + outward * (eyeSpan * 0.28),
-                width: 0.034,
-                strength: 0.55
+                width: 0.018,
+                strength: 0.60
             )
 
             // Nasolabial fold: beside the nose, curving out to the mouth corner.
@@ -387,8 +461,17 @@ final class FaceSessionCoordinator: NSObject, ARSessionDelegate, FaceSessionCont
             line(
                 offset(0, -0.70, 0.42) + side * 0.24,
                 offset(0, -1.22, 0.34) + side * 0.46,
-                width: 0.042,
-                strength: 0.85
+                width: 0.024,
+                strength: 0.90
+            )
+
+            // Marionette line, carrying on from the mouth corner toward the
+            // jaw. This is the one that makes a mouth look set that way.
+            line(
+                offset(0, -1.30, 0.32) + side * 0.44,
+                offset(0, -1.78, 0.22) + side * 0.40,
+                width: 0.020,
+                strength: 0.62
             )
         }
 
@@ -399,8 +482,8 @@ final class FaceSessionCoordinator: NSObject, ARSessionDelegate, FaceSessionCont
             line(
                 offset(-width, height, 0.20),
                 offset(width, height, 0.20),
-                width: 0.034,
-                strength: 0.5 - Float(index) * 0.08
+                width: 0.019,
+                strength: 0.55 - Float(index) * 0.08
             )
         }
 

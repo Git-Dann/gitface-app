@@ -116,11 +116,44 @@ struct ContentView: View {
 
     /// Hidden behind a triple tap on the status pill. The tint spike is a
     /// diagnostic, not a feature, and comes out once M1 is settled.
+    ///
+    /// The sliders are here because every weight in `WarpStyle` is a guess
+    /// until it is seen on a real face, and how old is old enough cannot be
+    /// judged away from the device. Dial them in, read the numbers off the
+    /// labels, and they get baked into the style.
     private var debugControls: some View {
-        Toggle("Red tint spike", isOn: $state.isTintSpikeEnabled)
-            .font(.footnote)
-            .foregroundStyle(.white)
-            .padding(.horizontal, 40)
+        VStack(alignment: .leading, spacing: 6) {
+            Toggle("Red tint spike", isOn: $state.isTintSpikeEnabled)
+
+            tuningSlider("Warp", value: $state.tuning.warp, range: 0...2.5)
+            tuningSlider("Creases", value: $state.tuning.crease, range: 0...2.5)
+            tuningSlider("Ridges", value: $state.tuning.ridge, range: 0...2.5)
+            tuningSlider("Sallow", value: $state.tuning.desaturate, range: 0...2.5)
+            tuningSlider("Blotch", value: $state.tuning.blotch, range: 0...2.5)
+            tuningSlider("Brows", value: $state.tuning.browGrey, range: 0...2)
+
+            Button("Reset") { state.tuning = .neutral }
+                .font(.caption.weight(.semibold))
+        }
+        .font(.footnote)
+        .foregroundStyle(.white)
+        .padding(.horizontal, 28)
+    }
+
+    private func tuningSlider(
+        _ name: String,
+        value: Binding<Float>,
+        range: ClosedRange<Float>
+    ) -> some View {
+        HStack(spacing: 10) {
+            Text(name)
+                .frame(width: 58, alignment: .leading)
+            Slider(value: value, in: range)
+            Text(String(format: "%.2f", value.wrappedValue))
+                .monospacedDigit()
+                .frame(width: 38, alignment: .trailing)
+        }
+        .font(.caption2)
     }
 
     private var unsupportedView: some View {

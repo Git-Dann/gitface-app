@@ -85,36 +85,50 @@ final class PostProcessFrameSource: @unchecked Sendable {
         state.withLock { $0.uniforms.tint = enabled ? 1 : 0 }
     }
 
-    /// Replaces the whole warp in one write.
+    /// Replaces the whole lens in one write.
     ///
-    /// Regions arrive already projected and weighted, because the work is done
-    /// on ARKit's delegate queue and the render thread contends for this lock.
-    func setWarp(
-        regions: [WarpRegion],
-        wrinkles: [WrinkleLine],
-        wrinkleStrength: Float,
-        hullCentre: SIMD2<Float>,
-        hullRadius: Float
-    ) {
-        let regionCount = min(regions.count, FaceUniforms.maximumRegions)
-        let wrinkleCount = min(wrinkles.count, FaceUniforms.maximumWrinkles)
+    /// Everything arrives already projected and weighted, because the work is
+    /// done on ARKit's delegate queue and the render thread contends for this
+    /// lock. Counts are clamped here rather than trusted, so a style that grows
+    /// past the buffer capacity cannot overrun it.
+    func setWarp(_ frame: FaceFrame) {
+        let regionCount = min(frame.regions.count, FaceUniforms.maximumRegions)
+        let wrinkleCount = min(frame.wrinkles.count, FaceUniforms.maximumWrinkles)
         state.withLock {
-            for index in 0..<regionCount { $0.regions[index] = regions[index] }
-            for index in 0..<wrinkleCount { $0.wrinkles[index] = wrinkles[index] }
+            for index in 0..<regionCount { $0.regions[index] = frame.regions[index] }
+            for index in 0..<wrinkleCount { $0.wrinkles[index] = frame.wrinkles[index] }
             $0.uniforms.regionCount = Int32(regionCount)
             $0.uniforms.wrinkleCount = Int32(wrinkleCount)
-            $0.uniforms.wrinkle = wrinkleStrength
-            $0.uniforms.hullCentre = hullCentre
-            $0.uniforms.hullRadius = hullRadius
+            $0.uniforms.hullCentre = frame.hullCentre
+            $0.uniforms.hullRadius = frame.hullRadius
+            $0.uniforms.browLeft = frame.browLeft
+            $0.uniforms.browRight = frame.browRight
+            $0.uniforms.browRadius = frame.browRadius
+            $0.uniforms.wrinkle = frame.skin.creases
+            $0.uniforms.ridge = frame.skin.ridge
+            $0.uniforms.desaturate = frame.skin.desaturate
+            $0.uniforms.sallow = frame.skin.sallow
+            $0.uniforms.blotch = frame.skin.blotch
+            $0.uniforms.browGrey = frame.skin.browGrey
+            $0.uniforms.jawShade = frame.skin.jawShade
         }
     }
 
-    /// Drops the warp when tracking is lost, so the last frame's distortion
+    /// Drops the lens when tracking is lost, so the last frame's distortion
     /// does not stay frozen on screen.
+    ///
+    /// The skin treatment has to go too: a colour grade with no face under it
+    /// tints the whole frame.
     func clearWarp() {
         state.withLock {
             $0.uniforms.regionCount = 0
             $0.uniforms.wrinkleCount = 0
+            $0.uniforms.ridge = 0
+            $0.uniforms.desaturate = 0
+            $0.uniforms.sallow = 0
+            $0.uniforms.blotch = 0
+            $0.uniforms.browGrey = 0
+            $0.uniforms.jawShade = 0
         }
     }
 

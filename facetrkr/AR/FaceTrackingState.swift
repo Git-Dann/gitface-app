@@ -12,6 +12,7 @@ protocol FaceSessionControlling: AnyObject {
     func setTintEnabled(_ enabled: Bool)
     func setTargetFrameRate(_ fps: Double)
     func setWarpStyle(_ style: WarpStyle)
+    func setTuning(_ value: LensTuning)
     func setViewportSize(_ size: CGSize)
     func applyMask(_ mask: Mask)
 }
@@ -71,6 +72,14 @@ final class FaceTrackingState: ObservableObject {
     /// M1 spike toggle. Remove once the passthrough question is settled.
     @Published var isTintSpikeEnabled = false {
         didSet { controller?.setTintEnabled(isTintSpikeEnabled) }
+    }
+
+    /// Live multipliers over the baked-in lens values, driven by the debug
+    /// panel. Judging "old enough" needs a real face in front of the camera,
+    /// so the numbers are dialled in here and read back rather than guessed a
+    /// build at a time.
+    @Published var tuning = LensTuning.neutral {
+        didSet { controller?.setTuning(tuning) }
     }
 
     weak var controller: FaceSessionControlling?
